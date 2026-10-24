@@ -12,7 +12,7 @@ struct Fix {
   unsigned int satellites;
   bool valid;
 };
-enum class Event { None, Started, LapCompleted, Interrupted };
+enum class Event { None, Started, LapCompleted, SectorCompleted, LapRestarted, Interrupted };
 
 class LapTimer {
  public:
@@ -24,6 +24,11 @@ class LapTimer {
   double bestLapMs() const { return bestLapMs_; }
   double lastCrossingMs() const { return lastCrossingMs_; }
   const TrackConfig& track() const { return track_; }
+  void selectTrack(const TrackConfig& track) { *this = LapTimer(track); }
+  unsigned int currentSector() const { return running_ ? nextSplit_ + 1 : 0; }
+  double lastSectorMs(unsigned int sector) const { return sector < 3 ? lastSectors_[sector] : 0; }
+  bool deltaValid() const { return deltaValid_; }
+  double deltaToBestMs() const { return deltaMs_; }
 
   void local(double latitude, double longitude, double& east, double& north) const {
     constexpr double radians = 0.017453292519943295;
@@ -64,27 +69,40 @@ class LapTimer {
       // Reject jumps >90 m/s, including a 5 m allowance for position noise.
       if (step > 90.0 * dt / 1000.0 + 5.0) {
         event = breakContinuity();
-      } else if (armed_ && previousDistance_ < 0 && distance >= 0 &&
+      } else {
+        if (running_ && processSplit(east, north, fix.speedKmh, dt)) event = Event::SectorCompleted;
+        if (armed_ && previousDistance_ < 0 && distance >= 0 &&
                  fix.speedKmh >= track_.minSpeedKmh && previousSpeed_ >= track_.minSpeedKmh) {
-        const double forwardSpeed = (distance - previousDistance_) * 1000.0 / dt;
-        const double fraction = -previousDistance_ / (distance - previousDistance_);
-        const double crossingAcross = previousAcross_ + fraction * (across - previousAcross_);
-        if (forwardSpeed >= track_.minSpeedKmh / 3.6 && std::fabs(crossingAcross) <= track_.halfWidthM) {
-          const double crossing = clockMs_ - dt + fraction * dt;
-          const double duration = crossing - lapStartedMs_;
-          if (!running_ || duration >= track_.minLapMs) {
-            if (running_) {
-              lastLapMs_ = duration;
-              if (bestLapMs_ == 0 || duration < bestLapMs_) bestLapMs_ = duration;
-              ++completed_;
-              event = Event::LapCompleted;
-            } else event = Event::Started;
-            running_ = true;
-            lapStartedMs_ = lastCrossingMs_ = crossing;
+          const double forwardSpeed = (distance - previousDistance_) * 1000.0 / dt;
+          const double fraction = -previousDistance_ / (distance - previousDistance_);
+          const double crossingAcross = previousAcross_ + fraction * (across - previousAcross_);
+          if (forwardSpeed >= track_.minSpeedKmh / 3.6 && std::fabs(crossingAcross) <= track_.halfWidthM) {
+            const double crossing = clockMs_ - dt + fraction * dt;
+            const double duration = crossing - lapStartedMs_;
+            if (!running_ || duration >= track_.minLapMs) {
+              if (running_) {
+                if (nextSplit_ == track_.splitCount) {
+                  currentSectors_[nextSplit_] = crossing - sectorStartedMs_;
+                  lastLapMs_ = duration;
+                  const bool newBest = bestLapMs_ == 0 || duration < bestLapMs_;
+                  if (newBest) bestLapMs_ = duration;
+                  for (unsigned int i = 0; i <= track_.splitCount; ++i) {
+                    lastSectors_[i] = currentSectors_[i];
+                    if (newBest) bestSectors_[i] = currentSectors_[i];
+                  }
+                  ++completed_;
+                  event = Event::LapCompleted;
+                } else event = Event::LapRestarted;  // Missed split: restart without recording a lap.
+              } else event = Event::Started;
+              running_ = true;
+              lapStartedMs_ = lastCrossingMs_ = crossing;
+              sectorStartedMs_ = crossing;
+              nextSplit_ = 0; splitArmed_ = false; deltaValid_ = false;
+            }
           }
+          // Any directed crossing consumes the latch; require a new approach.
+          armed_ = false;
         }
-        // Any directed crossing consumes the latch; require a new approach.
-        armed_ = false;
       }
     }
     if (distance <= -track_.rearmDistanceM && std::fabs(across) < 300 &&
@@ -111,9 +129,42 @@ class LapTimer {
   }
 
  private:
+  bool processSplit(double east, double north, double speed, uint32_t dt) {
+    if (nextSplit_ >= track_.splitCount || nextSplit_ >= 2 || !track_.splits) return false;
+    const Gate& gate = track_.splits[nextSplit_];
+    double gx, gy;
+    local(gate.latitude, gate.longitude, gx, gy);
+    const double a = (previousEast_ - gx) * gate.forwardEast + (previousNorth_ - gy) * gate.forwardNorth;
+    const double b = (east - gx) * gate.forwardEast + (north - gy) * gate.forwardNorth;
+    const double sideA = (previousEast_ - gx) * gate.forwardNorth - (previousNorth_ - gy) * gate.forwardEast;
+    const double sideB = (east - gx) * gate.forwardNorth - (north - gy) * gate.forwardEast;
+    if (splitArmed_ && a < 0 && b >= 0) {
+      splitArmed_ = false;
+      const double fraction = -a / (b - a);
+      if (speed >= track_.minSpeedKmh && previousSpeed_ >= track_.minSpeedKmh &&
+          (b - a) * 1000 / dt >= track_.minSpeedKmh / 3.6 &&
+          std::fabs(sideA + fraction * (sideB - sideA)) <= gate.halfWidthM) {
+        const double crossing = clockMs_ - dt + fraction * dt;
+        currentSectors_[nextSplit_] = crossing - sectorStartedMs_;
+        sectorStartedMs_ = crossing;
+        ++nextSplit_;
+        if (bestLapMs_ > 0) {
+          double bestElapsed = 0;
+          for (unsigned int i = 0; i < nextSplit_; ++i) bestElapsed += bestSectors_[i];
+          deltaMs_ = crossing - lapStartedMs_ - bestElapsed;
+          deltaValid_ = true;
+        }
+        return true;
+      }
+    }
+    if (b <= -gate.rearmDistanceM && std::fabs(sideB) < 100 && speed >= track_.minSpeedKmh)
+      splitArmed_ = true;
+    return false;
+  }
   Event breakContinuity() {
     const bool wasRunning = running_;
     running_ = false; havePrevious_ = false; armed_ = false;
+    nextSplit_ = 0; splitArmed_ = false; deltaValid_ = false;
     return wasRunning ? Event::Interrupted : Event::None;
   }
   static constexpr uint32_t dayMs = 86400000;
@@ -125,5 +176,9 @@ class LapTimer {
   double previousEast_ = 0, previousNorth_ = 0, previousDistance_ = 0;
   double previousAcross_ = 0, previousSpeed_ = 0;
   double lapStartedMs_ = 0, lastCrossingMs_ = 0, lastLapMs_ = 0, bestLapMs_ = 0;
+  unsigned int nextSplit_ = 0;
+  bool splitArmed_ = false, deltaValid_ = false;
+  double sectorStartedMs_ = 0, deltaMs_ = 0;
+  double currentSectors_[3] = {}, lastSectors_[3] = {}, bestSectors_[3] = {};
 };
 }

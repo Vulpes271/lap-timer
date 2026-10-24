@@ -2,6 +2,7 @@
 
 #include <TFT_eSPI.h>
 #include "stationary.h"
+#include "track_catalog.h"
 
 struct DashboardData {
   bool gpsOnline = false, fix = false, speedValid = false;
@@ -15,10 +16,10 @@ struct DashboardData {
   float gx = 0, gy = 0, gz = 0;
   double hdop = 0;
   const StationaryStats* test = nullptr;
-  uint32_t lapTimeMs = 0;  // Remains zero until track/lap detection is implemented.
+  uint32_t lapTimeMs = 0;
   uint32_t lapNumber = 0;
   bool bestDeltaValid = false;
-  int32_t deltaToBestMs = 0;  // Negative: faster; positive: slower, at equal progress.
+  int32_t deltaToBestMs = 0;  // Cumulative difference at the latest sector boundary.
   bool frontPressureValid = false, rearPressureValid = false, leanValid = false;
   float frontPressureBar = 0, rearPressureBar = 0, leanDegrees = 0;
   bool batteryValid = false, sdUsageValid = false;
@@ -27,9 +28,11 @@ struct DashboardData {
   float leanZeroDegrees = 0;
   const char* trackName = "";
   double lastLapMs = 0, bestLapMs = 0;
+  unsigned int trackIndex = 0, currentSector = 0;
+  double sectorMs[3] = {};
 };
 
-enum class DashboardScreen : uint8_t { LapTimer, Diagnostics, Stationary, Settings };
+enum class DashboardScreen : uint8_t { LapTimer, Diagnostics, Stationary, Settings, Tracks };
 
 class Dashboard {
  public:
@@ -51,7 +54,7 @@ class Dashboard {
 
   // Future button handler can call nextScreen(); pins are not reserved yet.
   void nextScreen() {
-    if (screen == DashboardScreen::Settings) {
+    if (screen == DashboardScreen::Settings || screen == DashboardScreen::Tracks) {
       selectScreen(DashboardScreen::LapTimer);
       return;
     }
@@ -59,16 +62,19 @@ class Dashboard {
   }
 
   void closeSettings() { selectScreen(DashboardScreen::LapTimer); }
+  void openTracks() { selectScreen(DashboardScreen::Tracks); }
+  bool tracksOpen() const { return screen == DashboardScreen::Tracks; }
 
   void toggleSettings() {
-    if (screen == DashboardScreen::Settings) closeSettings();
+    if (screen == DashboardScreen::Tracks) selectScreen(DashboardScreen::Settings);
+    else if (screen == DashboardScreen::Settings) closeSettings();
     else selectScreen(DashboardScreen::Settings);
   }
 
   void selectScreen(DashboardScreen selected) {
     screen = selected;
     const char* name = screen == DashboardScreen::LapTimer ? "GLAVNI" :
-                       screen == DashboardScreen::Settings ? "SETUP" :
+                       screen == DashboardScreen::Settings ? "SETUP" : screen == DashboardScreen::Tracks ? "DIRKALISCA" :
                        screen == DashboardScreen::Stationary ? "MIRUJOCI TEST" : "DIAGNOSTIKA";
     Serial.printf("ZASLON: %s\n", name);
     region = 0;
@@ -82,15 +88,27 @@ class Dashboard {
       drawLapLayout();
       return;
     }
+    if (screen == DashboardScreen::Tracks) {
+      tft.setTextColor(TFT_WHITE, background);
+      tft.drawString("SETUP > DIRKALISCA", 24, 16, 4);
+      tft.drawFastHLine(24, 52, 432, TFT_DARKGREY);
+      for (unsigned int i = 0; i < Tracks::Count; ++i) {
+        char label[64];
+        snprintf(label, sizeof(label), "%u  %s", i + 1, Tracks::Catalog[i]->name);
+        tft.drawString(label, 24, 70 + i * 28, 4);
+      }
+      tft.setTextColor(TFT_LIGHTGREY, background);
+      tft.drawString("Stevilka = izberi | S = nazaj v SETUP", 24, 268, 2);
+      tft.drawString("Q / ESC = glavni zaslon", 24, 292, 2);
+      return;
+    }
     if (screen == DashboardScreen::Settings) {
       tft.setTextColor(TFT_WHITE, background);
       tft.drawString("SETUP", 24, 16, 4);
       tft.drawFastHLine(24, 52, 432, TFT_DARKGREY);
-      tft.drawString("Motor postavi naravnost in ga umiri.", 24, 68, 2);
-      tft.drawString("Proga:", 24, 84, 2);
-      tft.drawString("Z  Nastavi niclo nagiba", 24, 166, 2);
-      tft.drawString("C  Ponastavi niclo nagiba", 24, 190, 2);
-      tft.drawString("G  Vklopi / izklopi zeleni preizkus", 24, 214, 2);
+      tft.drawString("K  Dirkalisca:", 24, 64, 2);
+      tft.drawString("Z  Nastavi niclo | C  Ponastavi niclo", 24, 88, 2);
+      tft.drawString("G  Zeleni preizkus", 24, 208, 2);
       tft.setTextColor(TFT_LIGHTGREY, background);
       tft.drawString("Ukazi prek USB; fizicni gumb sledi.", 24, 268, 2);
       tft.drawString("N / Q / ESC  Nazaj | S  Zapri SETUP", 24, 292, 2);
@@ -114,6 +132,7 @@ class Dashboard {
   void update(const DashboardData& data) {
     if (millis() - lastDraw < 25) return;
     lastDraw = millis();
+    if (screen == DashboardScreen::Tracks) { updateTracks(data); return; }
     if (screen == DashboardScreen::LapTimer) { updateLap(data); return; }
     if (screen == DashboardScreen::Settings) { updateSettings(data); return; }
     if (screen == DashboardScreen::Stationary && data.test) { updateStationary(data); return; }
@@ -208,12 +227,14 @@ class Dashboard {
   }
 
   void drawComparisonBars(unsigned int active, uint16_t color) {
-    // Outside the 448-pixel time text region, so time redraws preserve the bars.
-    for (int segment = 0; segment < 5; ++segment) {
-      const int y = 104 + (4 - segment) * 22;
-      const uint16_t fill = static_cast<unsigned int>(segment) < active ? color : TFT_DARKGREY;
-      tft.fillRoundRect(4, y, 8, 18, 3, fill);
-      tft.fillRoundRect(468, y, 8, 18, 3, fill);
+    // Maximum width outside the large timer: x=12..467 is reserved for text.
+    for (int segment = 0; segment < 3; ++segment) {
+      const int y = 108 + (2 - segment) * 46;
+      const bool on = static_cast<unsigned int>(segment) < active;
+      for (int x : {2, 468}) {
+        tft.fillRoundRect(x, y, 10, 40, 3, on ? color : background);
+        tft.drawRoundRect(x, y, 10, 40, 3, on ? color : TFT_DARKGREY);
+      }
     }
   }
 
@@ -248,12 +269,14 @@ class Dashboard {
     } else if (region == 3) {
       const float angle = data.leanDegrees;
       const int pixel = data.leanValid ? 240 + static_cast<int>(constrain(angle, -60.0f, 60.0f) * (125.0f / 60.0f)) : -1;
-      if (data.leanValid) snprintf(text, sizeof(text), "%.1f deg", fabsf(angle));
-      else snprintf(text, sizeof(text), "-- deg");
+      if (data.leanValid) snprintf(text, sizeof(text), "%.1f", fabsf(angle));
+      else snprintf(text, sizeof(text), "--");
       color = data.leanValid ? TFT_CYAN : TFT_DARKGREY;
       if (strcmp(previous[region], text) != 0 || previousColors[region] != color) {
         tft.setTextColor(color, background); tft.setTextPadding(140);
         tft.drawCentreString(text, 240, 279, 4);
+        // Draw the degree glyph explicitly: built-in fonts differ in Unicode coverage.
+        tft.drawCircle(240 + tft.textWidth(text, 4) / 2 + 5, 283, 2, color);
       }
       if (pixel != lastLeanPixel || color != previousColors[region]) {
         updateLeanBar(pixel, color);
@@ -292,8 +315,8 @@ class Dashboard {
         snprintf(text, sizeof(text), "BEST --");
         color = TFT_DARKGREY;
       }
-      const unsigned int active = data.greenPreview ? 5 : data.bestDeltaValid ?
-          static_cast<unsigned int>(fmin(5.0, ceil(fabs(static_cast<double>(data.deltaToBestMs)) / 200.0))) : 0;
+      const unsigned int active = data.greenPreview ? 3 : data.bestDeltaValid ?
+          static_cast<unsigned int>(fmin(3.0, ceil(fabs(static_cast<double>(data.deltaToBestMs)) / 200.0))) : 0;
       // Include segment count in the cache key: bar transitions need not change rounded text.
       char key[40];
       snprintf(key, sizeof(key), "%.30s:%u", text, active);
@@ -313,21 +336,37 @@ class Dashboard {
   void updateSettings(const DashboardData& data) {
     char text[80];
     if (region == 0)
-      snprintf(text, sizeof(text), "Umerjena nicla: %+.2f deg", data.leanZeroDegrees);
+      snprintf(text, sizeof(text), "Nicla: %+.2f", data.leanZeroDegrees);
     else if (region == 1) {
-      if (data.leanValid) snprintf(text, sizeof(text), "Trenutni nagib: %+.1f deg", data.leanDegrees);
+      if (data.leanValid) snprintf(text, sizeof(text), "Nagib: %+.1f", data.leanDegrees);
       else snprintf(text, sizeof(text), "Trenutni nagib: --");
     } else if (region == 2) snprintf(text, sizeof(text), "Zeleni preizkus: %s", data.greenPreview ? "VKLOPLJEN" : "IZKLOPLJEN");
     else if (region == 3) snprintf(text, sizeof(text), "%s", data.trackName);
-    else snprintf(text, sizeof(text), "Zadnji %.3f s | Best %.3f s", data.lastLapMs / 1000, data.bestLapMs / 1000);
+    else if (region == 4) snprintf(text, sizeof(text), "Zadnji %.3f s | Best %.3f s", data.lastLapMs / 1000, data.bestLapMs / 1000);
+    else snprintf(text, sizeof(text), "S1 %.2f | S2 %.2f | S3 %.2f s", data.sectorMs[0] / 1000, data.sectorMs[1] / 1000, data.sectorMs[2] / 1000);
     if (strcmp(previous[region], text) != 0) {
-      tft.setTextSize(1); tft.setTextPadding(432);
+      tft.setTextSize(1); tft.setTextPadding(region == 3 ? 300 : 432);
       tft.setTextColor(TFT_CYAN, background);
-      const int y = region < 2 ? 100 + region * 24 : region == 2 ? 240 : region == 3 ? 84 : 144;
-      tft.drawString(text, region == 3 ? 76 : 24, y, 2);
+      const int y = region < 2 ? 112 + region * 24 : region == 2 ? 232 : region == 3 ? 64 : region == 4 ? 160 : 184;
+      const int x = region == 3 ? 126 : 24;
+      tft.drawString(text, x, y, 2);
+      if (region == 0 || (region == 1 && data.leanValid))
+        tft.drawCircle(x + tft.textWidth(text, 2) + 4, y + 3, 2, TFT_CYAN);
       snprintf(previous[region], sizeof(previous[region]), "%s", text);
     }
-    region = (region + 1) % 5;
+    region = (region + 1) % 6;
+  }
+
+  void updateTracks(const DashboardData& data) {
+    char text[96];
+    snprintf(text, sizeof(text), "Izbrano: %s | 3 sektorji", data.trackName);
+    if (strcmp(previous[0], text) == 0) return;
+    tft.setTextSize(1); tft.setTextPadding(432);
+    tft.setTextColor(TFT_GREEN, background);
+    tft.drawString(text, 24, 120, 2);
+    tft.setTextColor(TFT_LIGHTGREY, background);
+    tft.drawString("Sektorji: lastne tocke iz AiM trase", 24, 146, 2);
+    snprintf(previous[0], sizeof(previous[0]), "%s", text);
   }
 
   void updateStationary(const DashboardData& data) {

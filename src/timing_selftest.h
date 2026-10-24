@@ -4,7 +4,7 @@
 
 inline bool runTimingSelfTests(Stream& output) {
   const Timing::TrackConfig track = {"test", "synthetic", 44.710284, 12.214867,
-                                     0, 1, 20, 15, 10, 30000, 600000};
+                                     0, 1, 20, 15, 10, 30000, 600000, nullptr, 0};
   unsigned int passed = 0, failed = 0;
   auto check = [&](bool result, const char* name) {
     output.printf("TIMING TEST %s: %s\n", result ? "PASS" : "FAIL", name);
@@ -58,6 +58,50 @@ inline bool runTimingSelfTests(Stream& output) {
   const unsigned int previous = oval.lapNumber();
   oval.process(fix(0, 0, 220200, 40));
   check(oval.lapNumber() == previous, "duplicate UTC epoch ignored");
+  Timing::Gate splits[2];
+  for (int i = 0; i < 2; ++i) {
+    const double theta = (i + 1) * 6.283185307179586 / 3;
+    const auto point = fix(100 * std::sin(theta), 100 * (std::cos(theta) - 1), 0);
+    splits[i] = {point.latitude, point.longitude, -std::sin(theta), std::cos(theta), 20, 15};
+  }
+  auto sectorTrack = track;
+  sectorTrack.splits = splits; sectorTrack.splitCount = 2;
+  Timing::LapTimer sectors(sectorTrack);
+  auto drive = [&](int first, int last, double period, uint32_t base) {
+    for (int i = first; i <= last; ++i) {
+      const double theta = i * .2 * 6.283185307179586 / period;
+      sectors.process(fix(100 * std::sin(theta), 100 * (std::cos(theta) - 1), base + i * 200, 40));
+    }
+  };
+  drive(-15, 301, 60, 100000);
+  check(sectors.completedLaps() == 1, "ordered sector gates permit a complete lap");
+  check(std::fabs(sectors.lastSectorMs(0) - 20000) < 1 &&
+        std::fabs(sectors.lastSectorMs(1) - 20000) < 1 &&
+        std::fabs(sectors.lastSectorMs(2) - 20000) < 1, "three sectors sum to lap time");
+  Timing::LapTimer slower = sectors;
+  for (int i = 2; i <= 106; ++i) {
+    const double theta = i * .2 * 6.283185307179586 / 63;
+    slower.process(fix(100 * std::sin(theta), 100 * (std::cos(theta) - 1), 160000 + i * 200, 40));
+  }
+  check(slower.deltaValid() && slower.deltaToBestMs() > 0, "slower sector produces positive red delta");
+  // Start second lap continuously, then accelerate: split comparison must turn green.
+  drive(2, 70, 60, 160000);
+  // Remaining angle reaches first split early by increasing angular progress.
+  for (int i = 71; i <= 101; ++i) {
+    const double theta = (i + 5) * .2 * 6.283185307179586 / 60;
+    sectors.process(fix(100 * std::sin(theta), 100 * (std::cos(theta) - 1), 160000 + i * 200, 40));
+  }
+  check(sectors.deltaValid() && sectors.deltaToBestMs() < 0, "sector comparison uses best lap reference");
+  Timing::LapTimer missed(sectorTrack);
+  for (int i = -15; i <= 301; ++i) {
+    const double theta = i * .2 * 6.283185307179586 / 60;
+    // Miss the first gate by moving beyond its finite width.
+    const double offset = i > 70 && i < 130 ? 60 * std::sin((i - 70) * 3.141592653589793 / 60) : 0;
+    missed.process(fix(100 * std::sin(theta), 100 * (std::cos(theta) - 1) + offset, 100000 + i * 200, 40));
+  }
+  check(missed.completedLaps() == 0, "missing sector prevents recording an incomplete lap");
+  sectors.selectTrack(track);
+  check(!sectors.running() && sectors.completedLaps() == 0 && !sectors.deltaValid(), "changing circuit resets timing and reference");
   output.printf("TIMING TEST RESULT: %u passed, %u failed\n", passed, failed);
   return failed == 0;
 }

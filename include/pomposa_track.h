@@ -3,8 +3,14 @@
 // Historical AiM PomposaMotoL; current Solo 2 name equivalence is not verified.
 #include "track_config.h"
 namespace Tracks {
+// Custom sector boundaries at one third and two thirds of the legacy driven line.
+constexpr Timing::Gate PomposaSplits[] = {
+    {44.712024124, 12.214997752, 0.205102401911, 0.978740519612, 20.0, 15.0},
+    {44.708885544, 12.214549052, 0.743667102105, 0.668550103767, 20.0, 15.0}
+};
 constexpr Timing::TrackConfig PomposaLong = {
     "Pomposa Long", "PomposaMotoL", 44.710284000, 12.214867000,
-    -0.224599872545, 0.974451074838, 20.0, 15.0, 10.0, 30000, 600000
+    -0.224599872545, 0.974451074838, 20.0, 15.0, 10.0, 30000, 600000,
+    PomposaSplits, 2
 };
 }

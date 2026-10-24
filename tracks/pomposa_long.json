@@ -37,6 +37,24 @@
   ],
   "gate_half_width_m": 20,
   "gate_width_source": "Project policy; not supplied by AiM",
+  "sector_method": "Project-defined thirds of ordered AiM driven line; not official AiM split points",
+  "driven_line_length_m": 1481.9536678421957,
+  "splits": [
+    {
+      "latitude": 44.712024124004984,
+      "longitude": 12.214997751950188,
+      "forward_east": 0.20510240191063894,
+      "forward_north": 0.9787405196120608,
+      "distance_from_start_m": 493.9845559473986
+    },
+    {
+      "latitude": 44.70888554415088,
+      "longitude": 12.214549051714418,
+      "forward_east": 0.7436671021050492,
+      "forward_north": 0.6685501037668593,
+      "distance_from_start_m": 987.9691118947972
+    }
+  ],
   "current_solo2_name_match_verified": false,
   "note": "Historical public AiM long motorcycle profile. Verify against the current Solo 2 Pomposa Long export before comparing lap times."
 }

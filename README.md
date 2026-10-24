@@ -37,11 +37,34 @@ Trenutne nastavitve zascit:
 - Merjenje se ne sprozi vec kot 1500 m od cilja. Pri premiku med progami se
   zgodovina rezultatov ne menja samodejno; za novo sejo ponovno zazeni napravo.
 
-Pospesek IMU se se ne uporablja za interpolacijo. Napovedna primerjava po
-razdalji, samodejno prepoznavanje vec prog, vmesni casi in zaznavanje bliznjice
-se niso implementirani. Enaka start/cilj in smer ne preverjata celotnega
-prevozenega dolgega kroga. Zelene/rdece lucke ostanejo nevtralne do izvedbe
-napovedne primerjave; ukaz g vklopi jasno oznaceni zeleni preizkus.
+### Trije sektorji in izbira dirkalisca
+
+AiM zapis PomposaMotoL vsebuje samo eno line_info (start/cilj), brez vmesnih
+tock. Uvoznik iz prenesene urejene trase izpelje LASTNI meji pri 1/3 in 2/3
+njene dolzine. To niso uradni AiM sektorji. Koordinate in metoda so v JSON:
+
+- S1 konec: 44.712024124 N, 12.214997752 E.
+- S2 konec: 44.708885544 N, 12.214549052 E.
+- S3 konec: start/cilj.
+
+Vsaka meja ima svojo smer, 40 m sirine in 15 m priblizevanja. Casi uporabljajo
+enako GPS UTC interpolacijo kot cilj. Krog se shrani samo po zaporedju
+start -> S1 -> S2 -> cilj. Ce manjka sektor, se ob cilju zacne nov krog brez
+shranitve nepopolnega. Zadnji trije sektorski casi so v SETUP.
+Po prvem celotnem krogu se na vsakem sektorju primerja kumulativni cas z istim
+mestom najboljsega celotnega kroga. Zelena pomeni hitreje, rdeca pocasneje;
+primerjava ostane do naslednjega sektorja, na cilju se ponastavi. To je
+primerjava na mejah sektorjev, ne zvezna napoved casa. Ukaz g vklopi TEST.
+
+S odpre SETUP, K odpre DIRKALISCA, 1 izbere Pomposa Long. Seznam je v
+include/track_catalog.h in je pripravljen za dodajanje prog. Ponovna izbira
+iste proge ohrani sejo; menjava proge ponastavi cas in reference. Trenutno je
+samo ena proga, ki je tudi privzeta ob zagonu. S v podmeniju vrne SETUP,
+Q ali ESC pa glavni zaslon. Izbira se izvaja prek USB, fizicni gumb sledi.
+
+Pospesek IMU se se ne uporablja za interpolacijo. Zvezna napovedna primerjava
+po razdalji in samodejno prepoznavanje prog se nista implementirana. Tri meje
+ne preverjajo celotne prevozene trase ali vseh moznih bliznjic.
 SD belezenje ostaja izklopljeno po prejsnji nastavitvi; rezultati so v RAM-u.
 
 ### Ponovljiv uvoz in test
@@ -62,6 +85,9 @@ https://aim-sportline.com/download/software/doc/Import-RS3-tracks-into-GPSManage
 Serijski ukaz t izvede izolirane sinteticne C++ preizkuse timinga na ESP32;
 ne spremeni aktivne seje, kalibracije ali SD. Preveri prehod/interpolacijo,
 smer, meje crte, mirovanje, jitter, kakovost in izpad GPS, polnoc ter dva kroga.
+Razsirjeni preizkus preveri tudi tri sektorske case, hitrejso/pocasnejso
+primerjavo, izpuscen sektor in menjavo proge. Na ESP32 COM4 je uspelo 20/20
+sinteticnih preverjanj; podmeni izbire in vrnitev sta preverjena prek USB.
 To ni nadomestilo za terenski preizkus s fizicno znano ciljno crto.
 
 Diagnostika GPS NEO-6, MPU6500/9250/9255 in SD kartice na ESP32-WROOM-32.
@@ -72,7 +98,7 @@ Wi-Fi test je odstranjen.
 Prva integrirana verzija podpira ESP32, NEO-6 pri 5 Hz, MPU6500/9250/9255,
 SPI TFT 480x320 in preverjen SD CSV zapis. Timing je opisan zgoraj; tlaka in
 baterija ostajajo brez senzorjev, zapis SD izklopljen.
-ZELENI PREIZKUS se vklopi z g: vseh pet segmentov ob obeh
+ZELENI PREIZKUS se vklopi z g: vsi trije vecji okvirji ob obeh
 robovih je zelenih, oznaka TEST jasno loci prikaz od dejanske primerjave kroga.
 Ukaz g preizkus izklopi/vklopi. Napisa LEVO in DESNO sta odstranjena.
 
@@ -100,13 +126,13 @@ Ob zagonu se za 0,8 s prikaze napis RACE, nato se odpre prvi zaslon:
   za prikaz M:SS.d); ob morebitnem daljsem krogu se pisava zmanjsa, cas se ne ovije.
   Cas se zacne ob prehodu cez nastavljeno crto, ne od vklopa naprave.
 - Nad casom je manjsi LAP 0 (stevilka trenutnega kroga; pred voznjo 0).
-  Levo in desno ob casu je prostor za petsegmentni primerjalni indikator.
-  Negativna delta proti najboljsemu krogu na isti razdalji obarva indikator
+  Levo in desno ob casu so trije vecji okvirji primerjalnega indikatorja.
+  Negativna delta proti najboljsemu krogu na isti sektorski meji obarva indikator
   zeleno, pozitivna rdece, nicelna je nevtralna. Vsak segment predstavlja
-  zacetih 0,2 s razlike, najvec pet segmentov. Zraven LAP je izpis BEST z delto
+  zacetih 0,2 s razlike, najvec trije segmenti. Zraven LAP je izpis BEST z delto
   v sekundah. Ko je zeleni preizkus izklopljen in ni reference, je BEST -- in indikator siv.
-  Stevilo krogov in last/best se racunajo, bestDeltaValid pa ostaja false:
-  napovedna primerjava po razdalji se ni implementirana. Lucke so na zaslonu,
+  Primerjava se posodobi na mejah sektorjev; zvezna napovedna primerjava po
+  razdalji se ni implementirana. Lucke so na zaslonu,
   ne fizicne LED diode.
 - Zgoraj je majhna skupna vrstica GPS n, BAT n% in SD n%.
   GPS prikaze stevilo satelitov v uporabi iz GGA, brez svezega podatka --.
@@ -124,9 +150,9 @@ Ob zagonu se za 0,8 s prikaze napis RACE, nato se odpre prvi zaslon:
   Pri spremembi se doda ali odstrani samo razlika med prejsnjo in novo dolzino;
   celoten trak se ne brise. Pri prehodu cez niclo se odstrani stara
   stran in napolni nova, nespremenjen kazalnik pa se ne izrisuje znova.
-  Stevilka je absolutna vrednost stopinj brez oznak L/D; smer pokaze pravokotnik.
+  Stevilka je absolutna vrednost z znakom stopinj (krogec), brez deg in L/D; smer pokaze pravokotnik.
   Stevilka prikaze tudi vrednosti zunaj tega obmocja, kazalnik pa se omeji
-  na konec merila. Brez svezega MPU podatka se izpise -- deg.
+  na konec merila. Brez svezega MPU podatka se izpise -- z znakom stopinj.
 
 Trenutni nagib je staticna ocena atan2(ay, az), zmanjsana za shranjeno niclo
 in ovita na -180 do +180 stopinj. Brez nastavitve je nicla ay=0 in az>0;
@@ -135,7 +161,7 @@ To ni kalibriran kot nagiba motorja med voznjo: linearni pospeski in zavoji
 vplivajo na pospeskomer. Nastavitev nicle namestitve je v SETUP; senzorska
 fuzija sledi kasneje. Demonstracijski cas in tlaki so v DashboardData loceni od izrisa.
 
-DashboardScreen ima zaslone LapTimer, Diagnostics, Stationary in Settings. Privzeti je
+DashboardScreen ima zaslone LapTimer, Diagnostics, Stationary, Settings in Tracks. Privzeti je
 LapTimer; nextScreen() preklopi na naslednjega. Serijski ukaz n za zdaj omogoca
 preklop brez gumba. GPIO in logika fizicnega stikala se nista dodana. Ob preklopu
 se narise postavitev, med delovanjem samo spremenjene regije (ena na 25 ms).

@@ -9,6 +9,7 @@
 #include "device_settings.h"
 #include "lap_timing.h"
 #include "pomposa_track.h"
+#include "track_catalog.h"
 #include "timing_selftest.h"
 
 namespace {
@@ -19,6 +20,7 @@ constexpr bool STATIONARY_TEST = true;  // Display-only test; no SD writes.
 StationaryStats stationary;
 DeviceSettings deviceSettings;
 Timing::LapTimer lapTimer(Tracks::PomposaLong);
+unsigned int selectedTrack = 0;
 uint32_t lastImuPoll = 0;
 float lastGx = 0, lastGy = 0, lastGz = 0;
 HardwareSerial gpsSerial(2);
@@ -196,6 +198,11 @@ void trackGga(TinyGPSCustom& timeField, TinyGPSCustom& qualityField) {
   else if (timingEvent == Timing::Event::LapCompleted)
     Serial.printf("TIMING: LAP %u koncan, cas=%.3f ms, BEST=%.3f ms; LAP %u\n",
                   lapTimer.completedLaps(), lapTimer.lastLapMs(), lapTimer.bestLapMs(), lapTimer.lapNumber());
+  else if (timingEvent == Timing::Event::SectorCompleted)
+    Serial.printf("TIMING: S%u koncan; primerjava=%s %+.3f s\n", lapTimer.currentSector() - 1,
+                  lapTimer.deltaValid() ? "BEST" : "BREZ REFERENCE", lapTimer.deltaToBestMs() / 1000);
+  else if (timingEvent == Timing::Event::LapRestarted)
+    Serial.println("TIMING: manjka sektor, krog ni shranjen. Zacet nov krog.");
   else if (timingEvent == Timing::Event::Interrupted)
     Serial.println("TIMING: trenutni krog neveljaven (GPS/kakovost/skok/cas). Cakam nov prehod.");
   if (STATIONARY_TEST && currentGpsFix && gps.location.isValid() && gps.location.age() < 400)
@@ -391,6 +398,11 @@ void updateDashboard() {
   data.trackName = lapTimer.track().name;
   data.lastLapMs = lapTimer.lastLapMs();
   data.bestLapMs = lapTimer.bestLapMs();
+  data.trackIndex = selectedTrack;
+  data.currentSector = lapTimer.currentSector();
+  for (unsigned int i = 0; i < 3; ++i) data.sectorMs[i] = lapTimer.lastSectorMs(i);
+  data.bestDeltaValid = lapTimer.deltaValid();
+  data.deltaToBestMs = static_cast<int32_t>(lapTimer.deltaToBestMs());
   data.stationary = STATIONARY_TEST;
   data.test = &stationary;
   data.gx = lastGx; data.gy = lastGy; data.gz = lastGz;
@@ -453,6 +465,21 @@ void loop() {
   while (Serial.available()) {
     const char command = Serial.read();
     if (command == 't' || command == 'T') runTimingSelfTests(Serial);
+    if (command == 'k' || command == 'K') {
+      dashboard.openTracks();
+      for (unsigned int i = 0; i < Tracks::Count; ++i)
+        Serial.printf("DIRKALISCA: %u = %s%s\n", i + 1, Tracks::Catalog[i]->name, i == selectedTrack ? " [IZBRANO]" : "");
+    }
+    if (dashboard.tracksOpen() && command >= '1' && command <= '9') {
+      const unsigned int index = command - '1';
+      if (index < Tracks::Count) {
+        if (index != selectedTrack) {
+          selectedTrack = index;
+          lapTimer.selectTrack(*Tracks::Catalog[index]);
+        }
+        Serial.printf("DIRKALISCE: %s, sektorji=%u\n", lapTimer.track().name, lapTimer.track().splitCount + 1);
+      } else Serial.println("DIRKALISCE: ta stevilka ni v seznamu.");
+    }
     if (command == 'r' || command == 'R') stationary.reset();
     if (command == 'p' || command == 'P') stationary.stop();
     if (command == 'n' || command == 'N') {
