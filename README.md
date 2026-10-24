@@ -1,14 +1,78 @@
 # ESP32 lap timer
 
+## Timing: Pomposa Long
+
+Proga je nalozena iz javnega uradnega AiM izvoza evropskih prog. Izvoz ima
+datum 2019-10-28 in zapis PomposaMotoL (poleg razlicnih Pomposa in Pomposa Moto).
+V projektu je poimenovan Pomposa Long. To je zgodovinski zapis dolge moto
+konfiguracije; enakost z danasnjo Solo 2 oznako Pomposa Long NI potrjena.
+Za neposredno primerjavo s Solo 2 preveri njegov aktualni izvoz start/cilja.
+
+- AiM start/cilj: 44.710284 N, 12.214867 E.
+- Smer voznje, izpeljana iz sosednjih tock AiM trase: priblizno 347,02 stopinje.
+- Virtualna crta je pravokotna na smer, dolga 40 m. Sirina je nasa nastavitev,
+  ne vrednost iz AiM izvoza; vpliva na dopustno stransko oddaljenost prehoda.
+- Izvor, SHA256 izvoza, datum, ime in tocke za izpeljavo smeri so zapisani v
+  tracks/pomposa_long.json. Celotne tuje baze in binarnih tras ne objavljamo.
+
+Ob zagonu ostaneta cas 0:00.0 in LAP 0 do prvega veljavnega usmerjenega prehoda.
+Prvi prehod zacne LAP 1. Vsak naslednji veljavni prehod zakljuci krog, shrani
+zadnji in najboljsi cas ter zacne naslednjega. Zadnji/best sta v SETUP in na USB.
+Tocke se pretvorijo v lokalne metre in preveri se presecisce s koncnim odsekom
+crte. Cas prehoda je linearno interpoliran iz predznacenih pravokotnih razdalj
+in GPS UTC casov meritev; cas prejema po UART se ne uporablja za rezultat.
+Prikaz med vzorcema le tece z lokalno uro. Prehod ob polnoci je podprt.
+
+Trenutne nastavitve zascit:
+
+- Veljaven fix, najmanj 4 sateliti, HDOP >0 in <=3, svezi podatki o hitrosti.
+- Pred prehodom se je treba priblizati vsaj 15 m pred crto; prehodi v nasprotni
+  smeri in izven 40-metrskega odseka se ne stejejo.
+- Hitrost obeh vzorcev najmanj 10 km/h; tudi interpoliran premik naprej mora
+  ustrezati najmanj 10 km/h.
+- Najkrajsi krog 30 s, najdaljsi 10 min. Jitter ob cilju ne ustvari novega kroga.
+- Ne povezujemo GPS vzorcev z razmikom nad 1 s. Slab fix, izpad nad 1,5 s,
+  skok polozaja ali predolg krog prekinejo trenutni krog. Zadnji in najboljsi
+  veljavni cas ostaneta; za nadaljevanje je potreben nov veljaven prehod.
+- Merjenje se ne sprozi vec kot 1500 m od cilja. Pri premiku med progami se
+  zgodovina rezultatov ne menja samodejno; za novo sejo ponovno zazeni napravo.
+
+Pospesek IMU se se ne uporablja za interpolacijo. Napovedna primerjava po
+razdalji, samodejno prepoznavanje vec prog, vmesni casi in zaznavanje bliznjice
+se niso implementirani. Enaka start/cilj in smer ne preverjata celotnega
+prevozenega dolgega kroga. Zelene/rdece lucke ostanejo nevtralne do izvedbe
+napovedne primerjave; ukaz g vklopi jasno oznaceni zeleni preizkus.
+SD belezenje ostaja izklopljeno po prejsnji nastavitvi; rezultati so v RAM-u.
+
+### Ponovljiv uvoz in test
+
+```powershell
+.\.venv\Scripts\python.exe tools/import_aim_pomposa.py
+# Ali brez ponovnega prenosa:
+.\.venv\Scripts\python.exe tools/import_aim_pomposa.py --archive pot\europe.zwd
+```
+
+Uvoznik zahteva tocno PomposaMotoL, preveri obliko in lokacijo koordinat ter
+generira include/pomposa_track.h in tracks/pomposa_long.json. Napaka prenosa ali
+formata ne ustvari izmisljene konfiguracije. Vir:
+https://aim-sportline.com/aim-software-betas/Software/Applications/GPSManager/release/export_rs3_tracks_Europe.zwd
+AiM opis izvoza:
+https://aim-sportline.com/download/software/doc/Import-RS3-tracks-into-GPSManager_100_eng.pdf
+
+Serijski ukaz t izvede izolirane sinteticne C++ preizkuse timinga na ESP32;
+ne spremeni aktivne seje, kalibracije ali SD. Preveri prehod/interpolacijo,
+smer, meje crte, mirovanje, jitter, kakovost in izpad GPS, polnoc ter dva kroga.
+To ni nadomestilo za terenski preizkus s fizicno znano ciljno crto.
+
 Diagnostika GPS NEO-6, MPU6500/9250/9255 in SD kartice na ESP32-WROOM-32.
 Wi-Fi test je odstranjen.
 
 ## Prva verzija: povezava GPS, IMU in zaslona
 
 Prva integrirana verzija podpira ESP32, NEO-6 pri 5 Hz, MPU6500/9250/9255,
-SPI TFT 480x320 in preverjen SD CSV zapis. Trenutni nacin je demonstracijski:
-cas kroga 0:00.0, LAP 0, tlaka in baterija brez senzorjev, zapis SD izklopljen.
-Po zahtevi je ob zagonu vklopljen ZELENI PREIZKUS: vseh pet segmentov ob obeh
+SPI TFT 480x320 in preverjen SD CSV zapis. Timing je opisan zgoraj; tlaka in
+baterija ostajajo brez senzorjev, zapis SD izklopljen.
+ZELENI PREIZKUS se vklopi z g: vseh pet segmentov ob obeh
 robovih je zelenih, oznaka TEST jasno loci prikaz od dejanske primerjave kroga.
 Ukaz g preizkus izklopi/vklopi. Napisa LEVO in DESNO sta odstranjena.
 
@@ -23,7 +87,7 @@ oceno nagiba kot niclo. Preveri se svez MPU podatek, norma blizu 1 g in majhna
 kotna hitrost; to je osnovni pogoj, ne zanesljiv detektor mirovanja.
 Ukaz c nastavi niclo nazaj na tovarniskih 0 stopinj. Nicle se ne zajame samodejno.
 Odmik je shranjen v NVS ESP32 prek Preferences in ostane po izklopu napajanja.
-Zeleni preizkus je zacasen in je ob vsakem zagonu znova vklopljen za ta demo.
+Zeleni preizkus je zacasen in je ob vsakem zagonu izklopljen.
 Senzorska fuzija in fizicni gumb se nista implementirana. V meniju so trenutni
 nagib, shranjena nicla in stanje preizkusa; isti ukazi bodo lahko povezani z gumbom.
 
@@ -31,20 +95,19 @@ nagib, shranjena nicla in stanje preizkusa; isti ukazi bodo lahko povezani z gum
 
 Ob zagonu se za 0,8 s prikaze napis RACE, nato se odpre prvi zaslon:
 
-- Na sredini je velik cas M:SS.d; trenutno je vedno 0:00.0.
+- Na sredini je velik cas M:SS.d; do starta je 0:00.0.
   Pod 10 minutami se uporablja trikratna velikost pisave 7 (456 x 144 pik
   za prikaz M:SS.d); ob morebitnem daljsem krogu se pisava zmanjsa, cas se ne ovije.
-  Zaznavanje piste, startno-ciljne crte in samodejni zacetek merjenja se niso
-  implementirani; demonstracija ne meri casa od vklopa naprave.
+  Cas se zacne ob prehodu cez nastavljeno crto, ne od vklopa naprave.
 - Nad casom je manjsi LAP 0 (stevilka trenutnega kroga; pred voznjo 0).
   Levo in desno ob casu je prostor za petsegmentni primerjalni indikator.
   Negativna delta proti najboljsemu krogu na isti razdalji obarva indikator
   zeleno, pozitivna rdece, nicelna je nevtralna. Vsak segment predstavlja
   zacetih 0,2 s razlike, najvec pet segmentov. Zraven LAP je izpis BEST z delto
   v sekundah. Ko je zeleni preizkus izklopljen in ni reference, je BEST -- in indikator siv.
-  Za zdaj so lapNumber=0, bestDeltaValid=false; izracun krogov, najhitrejsega
-  kroga in primerjave po razdalji se ni implementiran. To je demonstracija UI,
-  ne samodejno stetje krogov ali fizicne LED diode.
+  Stevilo krogov in last/best se racunajo, bestDeltaValid pa ostaja false:
+  napovedna primerjava po razdalji se ni implementirana. Lucke so na zaslonu,
+  ne fizicne LED diode.
 - Zgoraj je majhna skupna vrstica GPS n, BAT n% in SD n%.
   GPS prikaze stevilo satelitov v uporabi iz GGA, brez svezega podatka --.
   BAT ostaja --, dokler ni priklopljena in umerjena meritev baterije.
@@ -194,7 +257,8 @@ meritve v GGA, ki mora biti pri 5 Hz 200 ms. To loci dejanske GPS epohe od
 nihanja casa prispetja po UART. Izpis vsebuje tudi stevilo napacnih NMEA
 kontrolnih vsot. 38400 baud (GPS) in 115200 baud (USB izpis) sta hitrosti
 prenosa, ne frekvenci meritev. Vsaka GPS meritev se sproti razcleni tudi med
-dvosekundnimi diagnosticnimi izpisi. Racunanje casa kroga se ni implementirano.
+dvosekundnimi diagnosticnimi izpisi. Merjenje krogov za Pomposa Long je opisano
+na zacetku dokumenta.
 
 SD uporablja loceno vodilo HSPI pri 1 MHz in navedene pine. Ob zagonu se priklopi
 datotecni sistem brez samodejnega formatiranja ter preverita odpiranje korenskega
@@ -247,7 +311,8 @@ knjiznice; datotek znotraj prenesene knjiznice ni treba spreminjati.
 Program inicializira lezec prikaz 480x320 z veliko GPS hitrostjo, stanjem
 polozaja, sateliti, koordinatami, pospeski, stanjem SD, imenom CSV datoteke,
 stevilom preverjenih vrstic, napakami in najdaljsim trajanjem zapisa na SD.
-Cas kroga ostaja --, ker izracun se ni implementiran. Zastareli GPS podatki
+Glavni zaslon prikazuje interpolirani cas kroga za nastavljeno progo; diagnostika
+prikazuje zgoraj nastete meritve. Zastareli GPS podatki
 se po 1,5 sekunde prikazejo kot nedosegljivi. Posamezna regija se lahko osvezi
 vsakih 25 ms, celoten krog osmih regij traja najmanj 200 ms; nespremenjene
 vrednosti se ne izrisujejo znova. GPS in SD se obdelujeta pred izrisom regije.

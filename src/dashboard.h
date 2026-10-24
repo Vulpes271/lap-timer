@@ -25,6 +25,8 @@ struct DashboardData {
   uint8_t batteryPercent = 0, sdUsedPercent = 0;
   bool greenPreview = false;
   float leanZeroDegrees = 0;
+  const char* trackName = "";
+  double lastLapMs = 0, bestLapMs = 0;
 };
 
 enum class DashboardScreen : uint8_t { LapTimer, Diagnostics, Stationary, Settings };
@@ -85,6 +87,7 @@ class Dashboard {
       tft.drawString("SETUP", 24, 16, 4);
       tft.drawFastHLine(24, 52, 432, TFT_DARKGREY);
       tft.drawString("Motor postavi naravnost in ga umiri.", 24, 68, 2);
+      tft.drawString("Proga:", 24, 84, 2);
       tft.drawString("Z  Nastavi niclo nagiba", 24, 166, 2);
       tft.drawString("C  Ponastavi niclo nagiba", 24, 190, 2);
       tft.drawString("G  Vklopi / izklopi zeleni preizkus", 24, 214, 2);
@@ -314,14 +317,17 @@ class Dashboard {
     else if (region == 1) {
       if (data.leanValid) snprintf(text, sizeof(text), "Trenutni nagib: %+.1f deg", data.leanDegrees);
       else snprintf(text, sizeof(text), "Trenutni nagib: --");
-    } else snprintf(text, sizeof(text), "Zeleni preizkus: %s", data.greenPreview ? "VKLOPLJEN" : "IZKLOPLJEN");
+    } else if (region == 2) snprintf(text, sizeof(text), "Zeleni preizkus: %s", data.greenPreview ? "VKLOPLJEN" : "IZKLOPLJEN");
+    else if (region == 3) snprintf(text, sizeof(text), "%s", data.trackName);
+    else snprintf(text, sizeof(text), "Zadnji %.3f s | Best %.3f s", data.lastLapMs / 1000, data.bestLapMs / 1000);
     if (strcmp(previous[region], text) != 0) {
       tft.setTextSize(1); tft.setTextPadding(432);
       tft.setTextColor(TFT_CYAN, background);
-      tft.drawString(text, 24, region < 2 ? 100 + region * 24 : 240, 2);
+      const int y = region < 2 ? 100 + region * 24 : region == 2 ? 240 : region == 3 ? 84 : 144;
+      tft.drawString(text, region == 3 ? 76 : 24, y, 2);
       snprintf(previous[region], sizeof(previous[region]), "%s", text);
     }
-    region = (region + 1) % 3;
+    region = (region + 1) % 5;
   }
 
   void updateStationary(const DashboardData& data) {

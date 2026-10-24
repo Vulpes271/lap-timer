@@ -7,7 +7,7 @@
 class DeviceSettings {
  public:
   float leanZeroDegrees = 0;
-  bool greenPreview = true;  // Requested visual test, not a calculated lap result.
+  bool greenPreview = false;  // Enable explicitly with G; timing starts neutral.
 
   void begin() {
     Preferences preferences;

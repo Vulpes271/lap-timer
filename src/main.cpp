@@ -7,6 +7,9 @@
 #include "dashboard.h"
 #include "stationary.h"
 #include "device_settings.h"
+#include "lap_timing.h"
+#include "pomposa_track.h"
+#include "timing_selftest.h"
 
 namespace {
 // NEO TX -> ESP32 RX19; NEO RX -> ESP32 TX4.
@@ -15,6 +18,7 @@ constexpr uint32_t REPORT_MS = 2000;
 constexpr bool STATIONARY_TEST = true;  // Display-only test; no SD writes.
 StationaryStats stationary;
 DeviceSettings deviceSettings;
+Timing::LapTimer lapTimer(Tracks::PomposaLong);
 uint32_t lastImuPoll = 0;
 float lastGx = 0, lastGy = 0, lastGz = 0;
 HardwareSerial gpsSerial(2);
@@ -180,6 +184,20 @@ void trackGga(TinyGPSCustom& timeField, TinyGPSCustom& qualityField) {
   lastGgaUtc = epoch;
   haveGga = true;
   currentGpsFix = atoi(qualityField.value()) > 0;
+  const bool usable = currentGpsFix && gps.location.isValid() && gps.location.age() < 400 &&
+      gps.speed.isValid() && gps.speed.age() < 500 && gps.hdop.isValid() && gps.hdop.age() < 500 &&
+      gps.satellites.isValid() && gps.satellites.age() < 500;
+  const Timing::Fix timingFix = {usable ? gps.location.lat() : 0, usable ? gps.location.lng() : 0,
+      epoch, now, usable ? gps.speed.kmph() : 0, usable ? gps.hdop.hdop() : 0,
+      usable ? static_cast<unsigned int>(gps.satellites.value()) : 0, usable};
+  const Timing::Event timingEvent = lapTimer.process(timingFix);
+  if (timingEvent == Timing::Event::Started)
+    Serial.printf("TIMING: START %s, LAP %u, GPS=%.3f ms\n", lapTimer.track().name, lapTimer.lapNumber(), lapTimer.lastCrossingMs());
+  else if (timingEvent == Timing::Event::LapCompleted)
+    Serial.printf("TIMING: LAP %u koncan, cas=%.3f ms, BEST=%.3f ms; LAP %u\n",
+                  lapTimer.completedLaps(), lapTimer.lastLapMs(), lapTimer.bestLapMs(), lapTimer.lapNumber());
+  else if (timingEvent == Timing::Event::Interrupted)
+    Serial.println("TIMING: trenutni krog neveljaven (GPS/kakovost/skok/cas). Cakam nov prehod.");
   if (STATIONARY_TEST && currentGpsFix && gps.location.isValid() && gps.location.age() < 400)
     stationary.addGps(gps.location.lat(), gps.location.lng());
   logGpsEpoch(epoch, now, currentGpsFix);
@@ -363,13 +381,16 @@ void updateDashboard() {
   data.maxLogUs = maxLogUs;
   data.sdUsageValid = sdUsageValid;
   data.sdUsedPercent = sdUsedPercent;
-  // Demonstration: no simulated pressures and no running lap clock.
-  data.lapTimeMs = 0;
+  data.lapTimeMs = lapTimer.elapsedMs(now);
+  data.lapNumber = lapTimer.lapNumber();
   data.leanValid = data.imuOk;
   if (data.leanValid)
     data.leanDegrees = deviceSettings.correctedLean(atan2f(lastAy, lastAz) * RAD_TO_DEG);
   data.leanZeroDegrees = deviceSettings.leanZeroDegrees;
   data.greenPreview = deviceSettings.greenPreview;
+  data.trackName = lapTimer.track().name;
+  data.lastLapMs = lapTimer.lastLapMs();
+  data.bestLapMs = lapTimer.bestLapMs();
   data.stationary = STATIONARY_TEST;
   data.test = &stationary;
   data.gx = lastGx; data.gy = lastGy; data.gz = lastGz;
@@ -384,8 +405,11 @@ void setup() {
   delay(500);
   Serial.println("\nESP32 lap timer: diagnostika GPS in MPU6500/9250/9255.");
   deviceSettings.begin();
-  Serial.printf("SETUP: nicla nagiba=%+.2f deg, zeleni preizkus=VKLOPLJEN. USB: s=setup, z=nicla, c=ponastavi, g=preizkus, n=zaslon.\n",
+  Serial.printf("SETUP: nicla nagiba=%+.2f deg. USB: s=setup, z=nicla, c=ponastavi, g=preizkus, n=zaslon, t=test timinga.\n",
                 deviceSettings.leanZeroDegrees);
+  Serial.printf("PROGA: %s (AiM legacy %s), cilj=%.6f,%.6f, polsirina=%.1f m.\n",
+                lapTimer.track().name, lapTimer.track().sourceName, lapTimer.track().latitude,
+                lapTimer.track().longitude, lapTimer.track().halfWidthM);
   dashboard.begin(STATIONARY_TEST);
   gpsSerial.setRxBufferSize(2048);
   gpsSerial.begin(9600, SERIAL_8N1, 19, 4);
@@ -424,8 +448,11 @@ void loop() {
     trackGga(gnGgaTime, gnGgaQuality);
   }
   sampleStationaryImu();
+  if (lapTimer.poll(millis()) == Timing::Event::Interrupted)
+    Serial.println("TIMING: izpad GPS, trenutni krog neveljaven.");
   while (Serial.available()) {
     const char command = Serial.read();
+    if (command == 't' || command == 'T') runTimingSelfTests(Serial);
     if (command == 'r' || command == 'R') stationary.reset();
     if (command == 'p' || command == 'P') stationary.stop();
     if (command == 'n' || command == 'N') {

@@ -1,0 +1,42 @@
+{
+  "name": "Pomposa Long",
+  "aim_export_name": "PomposaMotoL",
+  "source_url": "https://aim-sportline.com/aim-software-betas/Software/Applications/GPSManager/release/export_rs3_tracks_Europe.zwd",
+  "archive_sha256": "5c7d28276276f16534f75b1e20d61137e6c23a13b4ce7059e5edd8ed13b73d4c",
+  "archive_entry_date": [
+    2019,
+    10,
+    28,
+    12,
+    57,
+    24
+  ],
+  "aim_week_number": 2053,
+  "start_finish": {
+    "latitude": 44.710284,
+    "longitude": 12.214867
+  },
+  "forward_unit": {
+    "east": -0.2245998725445407,
+    "north": 0.974451074838022
+  },
+  "direction_method": "Tangent from ordered legacy KMB points next to the AiM lap marker",
+  "tangent_points": [
+    [
+      44.7099986,
+      12.2149582
+    ],
+    [
+      44.7102736,
+      12.2148534
+    ],
+    [
+      44.7105684,
+      12.2147734
+    ]
+  ],
+  "gate_half_width_m": 20,
+  "gate_width_source": "Project policy; not supplied by AiM",
+  "current_solo2_name_match_verified": false,
+  "note": "Historical public AiM long motorcycle profile. Verify against the current Solo 2 Pomposa Long export before comparing lap times."
+}
