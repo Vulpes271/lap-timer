@@ -424,12 +424,17 @@ void loop() {
     trackGga(gnGgaTime, gnGgaQuality);
   }
   sampleStationaryImu();
-  if (Serial.available()) {
+  while (Serial.available()) {
     const char command = Serial.read();
     if (command == 'r' || command == 'R') stationary.reset();
     if (command == 'p' || command == 'P') stationary.stop();
-    if (command == 'n' || command == 'N') dashboard.nextScreen();
-    if (command == 's' || command == 'S') dashboard.selectScreen(DashboardScreen::Settings);
+    if (command == 'n' || command == 'N') {
+      Serial.println("UKAZ: N");
+      dashboard.nextScreen();
+    }
+    if (command == 's' || command == 'S') dashboard.toggleSettings();
+    if (command == 'q' || command == 'Q' || command == 'b' || command == 'B' || command == 27)
+      dashboard.closeSettings();
     if (command == 'g' || command == 'G') {
       deviceSettings.greenPreview = !deviceSettings.greenPreview;
       Serial.printf("SETUP: zeleni preizkus=%s\n", deviceSettings.greenPreview ? "VKLOPLJEN" : "IZKLOPLJEN");

@@ -34,40 +34,41 @@ class Dashboard {
   void begin(bool stationaryMode = false) {
     tft.init();
     tft.setRotation(1);  // Landscape: 480 x 320.
-    Serial.print("TFT: register D3 (diagnosticno branje):");
-    for (uint8_t index = 0; index < 4; ++index)
-      Serial.printf(" %02X", tft.readcommand8(0xD3, index));
-    Serial.println();
-    // Visual startup test before GPS acquisition: color bars and orientation.
+    // Branding screen before GPS acquisition. No blocking color-test sequence.
     tft.fillScreen(TFT_BLACK);
-    tft.fillRect(0, 0, 160, 240, TFT_RED);
-    tft.fillRect(160, 0, 160, 240, TFT_GREEN);
-    tft.fillRect(320, 0, 160, 240, TFT_BLUE);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.drawString("TFT TEST 480x320", 16, 255, 4);
-    tft.drawString("RDECA | ZELENA | MODRA", 16, 292, 2);
-    const uint16_t expected[] = {TFT_RED, TFT_GREEN, TFT_BLUE};
-    unsigned int matches = 0;
-    Serial.print("TFT: branje barv iz pomnilnika:");
-    for (uint8_t index = 0; index < 3; ++index) {
-      const uint16_t value = tft.readPixel(index * 160 + 80, 100);
-      if (value == expected[index]) ++matches;
-      Serial.printf(" %04X", value);
-    }
-    Serial.printf(" | ujemanje=%u/3 (pricakovano F800 07E0 001F).\n", matches);
-    Serial.println("TFT: barvni preizkus 2 sekundi, nato prikaz podatkov. LED/BL mora biti napajan za vidno sliko.");
-    delay(2000);
+    tft.setTextSize(3);
+    tft.drawCentreString("RACE", 240, 112, 4);
+    tft.setTextSize(1);
+    tft.drawFastHLine(144, 208, 192, TFT_GREEN);
+    Serial.println("TFT: zagon RACE.");
+    delay(800);
     selectScreen(DashboardScreen::LapTimer);
     Serial.printf("TFT: demonstracijski zaslon casa kroga, %dx%d.\n", tft.width(), tft.height());
   }
 
   // Future button handler can call nextScreen(); pins are not reserved yet.
   void nextScreen() {
+    if (screen == DashboardScreen::Settings) {
+      selectScreen(DashboardScreen::LapTimer);
+      return;
+    }
     selectScreen(static_cast<DashboardScreen>((static_cast<uint8_t>(screen) + 1) % 4));
+  }
+
+  void closeSettings() { selectScreen(DashboardScreen::LapTimer); }
+
+  void toggleSettings() {
+    if (screen == DashboardScreen::Settings) closeSettings();
+    else selectScreen(DashboardScreen::Settings);
   }
 
   void selectScreen(DashboardScreen selected) {
     screen = selected;
+    const char* name = screen == DashboardScreen::LapTimer ? "GLAVNI" :
+                       screen == DashboardScreen::Settings ? "SETUP" :
+                       screen == DashboardScreen::Stationary ? "MIRUJOCI TEST" : "DIAGNOSTIKA";
+    Serial.printf("ZASLON: %s\n", name);
     region = 0;
     memset(previous, 0, sizeof(previous));
     memset(previousColors, 0, sizeof(previousColors));
@@ -89,7 +90,7 @@ class Dashboard {
       tft.drawString("G  Vklopi / izklopi zeleni preizkus", 24, 214, 2);
       tft.setTextColor(TFT_LIGHTGREY, background);
       tft.drawString("Ukazi prek USB; fizicni gumb sledi.", 24, 268, 2);
-      tft.drawString("N  Naslednji zaslon", 24, 292, 2);
+      tft.drawString("N / Q / ESC  Nazaj | S  Zapri SETUP", 24, 292, 2);
       return;
     }
     const bool stationaryMode = screen == DashboardScreen::Stationary;
@@ -175,18 +176,32 @@ class Dashboard {
  private:
   void drawLapLayout() {
     tft.drawFastHLine(16, 82, 448, TFT_DARKGREY);
-    tft.drawFastHLine(16, 224, 448, TFT_DARKGREY);
     drawComparisonBars(0, TFT_DARKGREY);
-    drawLeanScale();
   }
 
-  void drawLeanScale() {
-    tft.drawFastHLine(40, 280, 400, TFT_DARKGREY);
-    for (int degrees = -60; degrees <= 60; degrees += 15) {
-      const int x = 240 + degrees * 3;
-      tft.drawFastVLine(x, degrees == 0 ? 270 : 276, degrees == 0 ? 19 : 9,
-                       degrees == 0 ? TFT_WHITE : TFT_DARKGREY);
+  void fillLeanStrip(int logicalStart, int width, uint16_t color) {
+    // Logical centre is 240; reserve x=165..314 for the numeric angle.
+    // The left bar ends at 165 and the right bar starts at 315.
+    const int x = (logicalStart < 240 ? 165 : 315) + logicalStart - 240;
+    if (width > 0) tft.fillRect(x, 284, width, 18, color);
+  }
+
+  void updateLeanBar(int pixel, uint16_t color) {
+    const int oldEnd = lastLeanPixel < 0 ? 240 : lastLeanPixel;
+    const int newEnd = pixel < 0 ? 240 : pixel;
+    if ((oldEnd - 240) * (newEnd - 240) >= 0) {
+      // Same side: only paint the strip between the previous and new endpoint.
+      const int width = abs(newEnd - oldEnd);
+      if (width > 0) {
+        const uint16_t fill = abs(newEnd - 240) > abs(oldEnd - 240) ? color : background;
+        fillLeanStrip(min(oldEnd, newEnd), width, fill);
+      }
+    } else {
+      // Crossing zero: erase the old side, then fill the new side.
+      fillLeanStrip(min(oldEnd, 240), abs(oldEnd - 240), background);
+      fillLeanStrip(min(newEnd, 240), abs(newEnd - 240), color);
     }
+    lastLeanPixel = pixel;
   }
 
   void drawComparisonBars(unsigned int active, uint16_t color) {
@@ -216,34 +231,29 @@ class Dashboard {
       }
     } else if (region == 2) {
       const uint32_t tenths = data.lapTimeMs / 100;
-      snprintf(text, sizeof(text), "%02lu:%02lu.%lu",
-               static_cast<unsigned long>((tenths / 600) % 100),
+      const uint32_t minutes = tenths / 600;
+      snprintf(text, sizeof(text), "%lu:%02lu.%lu",
+               static_cast<unsigned long>(minutes),
                static_cast<unsigned long>((tenths / 10) % 60),
                static_cast<unsigned long>(tenths % 10));
       if (strcmp(previous[region], text) != 0) {
         tft.setTextColor(TFT_WHITE, background);
-        tft.setTextSize(2); tft.setTextPadding(448);
-        tft.drawCentreString(text, 240, 106, 7);
+        tft.setTextSize(minutes < 10 ? 3 : 2); tft.setTextPadding(448);
+        tft.drawCentreString(text, 240, 104, 7);
         tft.setTextSize(1);
       }
     } else if (region == 3) {
       const float angle = data.leanDegrees;
-      const int pixel = data.leanValid ? 240 + static_cast<int>(constrain(angle, -60.0f, 60.0f) * 3) : -1;
-      if (data.leanValid) snprintf(text, sizeof(text), "%s%.1f deg", angle < -0.05f ? "L " : angle > 0.05f ? "D " : "", fabsf(angle));
+      const int pixel = data.leanValid ? 240 + static_cast<int>(constrain(angle, -60.0f, 60.0f) * (125.0f / 60.0f)) : -1;
+      if (data.leanValid) snprintf(text, sizeof(text), "%.1f deg", fabsf(angle));
       else snprintf(text, sizeof(text), "-- deg");
       color = data.leanValid ? TFT_CYAN : TFT_DARKGREY;
       if (strcmp(previous[region], text) != 0 || previousColors[region] != color) {
-        tft.setTextColor(color, background); tft.setTextPadding(220);
-        tft.drawCentreString(text, 240, 238, 4);
+        tft.setTextColor(color, background); tft.setTextPadding(140);
+        tft.drawCentreString(text, 240, 279, 4);
       }
       if (pixel != lastLeanPixel || color != previousColors[region]) {
-        tft.fillRect(32, 268, 416, 23, background);
-        drawLeanScale();
-        if (pixel >= 0) {
-          tft.fillTriangle(pixel - 5, 269, pixel + 5, 269, pixel, 276, color);
-          tft.drawFastVLine(pixel, 276, 15, color);
-        }
-        lastLeanPixel = pixel;
+        updateLeanBar(pixel, color);
       }
     } else if (region == 4) {
       char satellites[8], battery[8], sd[8];

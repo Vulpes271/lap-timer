@@ -7,15 +7,18 @@ Wi-Fi test je odstranjen.
 
 Prva integrirana verzija podpira ESP32, NEO-6 pri 5 Hz, MPU6500/9250/9255,
 SPI TFT 480x320 in preverjen SD CSV zapis. Trenutni nacin je demonstracijski:
-cas kroga 00:00.0, LAP 0, tlaka in baterija brez senzorjev, zapis SD izklopljen.
+cas kroga 0:00.0, LAP 0, tlaka in baterija brez senzorjev, zapis SD izklopljen.
 Po zahtevi je ob zagonu vklopljen ZELENI PREIZKUS: vseh pet segmentov ob obeh
 robovih je zelenih, oznaka TEST jasno loci prikaz od dejanske primerjave kroga.
 Ukaz g preizkus izklopi/vklopi. Napisa LEVO in DESNO sta odstranjena.
 
 ### Osnova SETUP menija in nicla nagiba
 
-Serijski ukaz s odpre SETUP, n preklopi na naslednji zaslon (med zasloni je
-tudi SETUP). Pri poravnanem in mirujocem motorju z shrani trenutno staticno
+Serijski ukaz s odpre SETUP; ponovni s ga zapre na glavni zaslon. V SETUP
+ukaz n vrne neposredno na glavni zaslon, drugod preklopi na naslednjega.
+Ukazi q, b in Escape vedno vrnejo na glavni zaslon. Terminal ob preklopu
+izpise ZASLON: GLAVNI / SETUP / DIAGNOSTIKA / MIRUJOCI TEST, ob n tudi UKAZ: N.
+Pri poravnanem in mirujocem motorju z shrani trenutno staticno
 oceno nagiba kot niclo. Preveri se svez MPU podatek, norma blizu 1 g in majhna
 kotna hitrost; to je osnovni pogoj, ne zanesljiv detektor mirovanja.
 Ukaz c nastavi niclo nazaj na tovarniskih 0 stopinj. Nicle se ne zajame samodejno.
@@ -26,9 +29,11 @@ nagib, shranjena nicla in stanje preizkusa; isti ukazi bodo lahko povezani z gum
 
 ## Trenutni zacetni zaslon: demonstracija casa kroga
 
-Ob zagonu se po kratkem barvnem preizkusu odpre prvi zaslon:
+Ob zagonu se za 0,8 s prikaze napis RACE, nato se odpre prvi zaslon:
 
-- Na sredini je velik cas MM:SS.d; trenutno je vedno 00:00.0.
+- Na sredini je velik cas M:SS.d; trenutno je vedno 0:00.0.
+  Pod 10 minutami se uporablja trikratna velikost pisave 7 (456 x 144 pik
+  za prikaz M:SS.d); ob morebitnem daljsem krogu se pisava zmanjsa, cas se ne ovije.
   Zaznavanje piste, startno-ciljne crte in samodejni zacetek merjenja se niso
   implementirani; demonstracija ne meri casa od vklopa naprave.
 - Nad casom je manjsi LAP 0 (stevilka trenutnega kroga; pred voznjo 0).
@@ -49,8 +54,14 @@ Ob zagonu se po kratkem barvnem preizkusu odpre prvi zaslon:
   Pod vrstico je levo R (tlak ZADAJ), desno F (tlak SPREDAJ), vsak v eni
   vrstici skupaj z vrednostjo v bar. Brez senzorjev: R --.-- bar in F --.-- bar.
   Bluetooth senzorji in simulirane vrednosti niso vkljuceni.
-- Spodaj sta merilo levo/desno (-60 do +60 stopinj) in kazalnik nagiba.
-  Napisa NAGIB ni; crta in stevilcna vrednost ostajata.
+- Spodaj na sredini je stevilcna vrednost nagiba, na obeh straneh pa prostor
+  za locena polnjena trakova (-60 do +60 stopinj, najvec 125 pik na stran).
+  Sivega okvira/ozadja, crtic merila in napisov ni. Trak raste od notranjega
+  roba ob stevilki navzven proti smeri nagiba.
+  Pri spremembi se doda ali odstrani samo razlika med prejsnjo in novo dolzino;
+  celoten trak se ne brise. Pri prehodu cez niclo se odstrani stara
+  stran in napolni nova, nespremenjen kazalnik pa se ne izrisuje znova.
+  Stevilka je absolutna vrednost stopinj brez oznak L/D; smer pokaze pravokotnik.
   Stevilka prikaze tudi vrednosti zunaj tega obmocja, kazalnik pa se omeji
   na konec merila. Brez svezega MPU podatka se izpise -- deg.
 
@@ -136,6 +147,20 @@ Napajanje priklopi glede na specifikacijo svoje razvojne ploscice modula;
 signali ESP32 so 3,3 V.
 
 ## Preizkus
+
+V VS Code odpri Terminal > New Terminal in za dvosmerno komunikacijo uporabi:
+
+```powershell
+.\.venv\Scripts\platformio.exe device monitor --port COM4 --baud 115200 --echo --dtr 0 --rts 0
+```
+
+Klikni v terminal in vtipkaj posamezno crko (Enter ni potreben): s za SETUP,
+z za shranitev nicle nagiba pri poravnanem mirujocem motorju, c za ponastavitev
+nicle, g za preklop zelenega preizkusa in n za naslednji zaslon oziroma izhod
+iz SETUP. Tudi q ali Escape vrneta na glavni zaslon. Ukaza r/p
+zacneta/ustavita statisticni preizkus. Ctrl+C zapre monitor. Pred nalaganjem
+programa monitor zapri, da sprosti COM4. Odpiranje serijskih vrat lahko na
+nekaterih razvojnih ploscicah sprozi ponovni zagon tudi z nastavljenima DTR/RTS.
 
 ```powershell
 .\.venv\Scripts\platformio.exe run
@@ -228,13 +253,10 @@ vsakih 25 ms, celoten krog osmih regij traja najmanj 200 ms; nespremenjene
 vrednosti se ne izrisujejo znova. GPS in SD se obdelujeta pred izrisom regije.
 Prikaz ne caka na zaznavo zaslona, zato odklopljen zaslon ne ustavi zanke.
 
-Ob zagonu program prikaze rdeco, zeleno in modro progo za dve sekundi ter
-prek MISO prebere po eno tocko vsake barve iz pomnilnika zaslona. Pri uspesnem
-preizkusu izpise F800 07E0 001F in ujemanje=3/3. Nato nadaljuje s prikazom podatkov.
-Izpise se tudi diagnosticno branje registra D3; vrnjeni FF sami ne dolocajo
-krmilnika in ne izkljucujejo uspesnega branja slikovnega pomnilnika.
+Trenutni zagon prikaze samo RACE za 0,8 s in nadaljuje na glavni zaslon.
+Barvni preizkus in branje registrov sta bila odstranjena iz rednega zagona.
 
-Preizkus 2026-10-24 na COM4: program nalozen, barvni RAM preizkus 3/3 uspesen,
+Prejsnji preizkus 2026-10-24 na COM4: program nalozen, barvni RAM preizkus 3/3 uspesen,
 D3=FF FF FF FF. To potrjuje zapis in povratno SPI branje prek GPIO33 pri
 izbranem gonilniku ILI9488. Osvetlitev LED/BL med preizkusom ni bila priklopljena;
 vidne slike, orientacije in barv na dejanskem panelu se ni bilo mogoce potrditi.
