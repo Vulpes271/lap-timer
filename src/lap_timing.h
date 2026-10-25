@@ -23,12 +23,19 @@ class LapTimer {
   double lastLapMs() const { return lastLapMs_; }
   double bestLapMs() const { return bestLapMs_; }
   double lastCrossingMs() const { return lastCrossingMs_; }
+  uint32_t lastCrossingReceivedMs() const { return lastReceivedMs_ - uint32_t(clockMs_ - lastCrossingMs_); }
   const TrackConfig& track() const { return track_; }
   void selectTrack(const TrackConfig& track) { *this = LapTimer(track); }
   unsigned int currentSector() const { return running_ ? nextSplit_ + 1 : 0; }
   double lastSectorMs(unsigned int sector) const { return sector < 3 ? lastSectors_[sector] : 0; }
   bool deltaValid() const { return deltaValid_; }
   double deltaToBestMs() const { return deltaMs_; }
+  double currentCumulativeMs() const { return sectorStartedMs_ - lapStartedMs_; }
+  void loadReference(double lap, const double* sectors) {
+    if (running_) return;
+    bestLapMs_ = lap;
+    for (unsigned i=0;i<3;++i) bestSectors_[i]=sectors[i];
+  }
 
   void local(double latitude, double longitude, double& east, double& north) const {
     constexpr double radians = 0.017453292519943295;
