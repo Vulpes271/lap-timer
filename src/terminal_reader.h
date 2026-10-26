@@ -3,7 +3,7 @@
 #include <cstring>
 
 // No Arduino dependencies: bounded, nonblocking CR/LF adapter. Single-character
-// legacy commands are dispatched only after Enter (or explicitly in legacy mode).
+// Commands are dispatched only after Enter.
 class TerminalReader {
  public:
   template<class Handler, class Error> void accept(char c, Handler handler, Error error) {

@@ -1,208 +1,63 @@
-# Terminal test implementation — terminal-v1
+# Terminal, settings and development guide
 
-Implemented from [CODEX_TERMINAL_TEST_PLAN.md](CODEX_TERMINAL_TEST_PLAN.md).
-The pulled repository contained that uppercase plan name. This file documents
-the implemented commands and limitations; the original plan remains unchanged.
+Current behavior is summarized in [README](../README.md). This guide describes
+commands and repeatable development checks, not a log of previous bench runs.
 
-## GPIO32 QUICK addition (uploaded on COM4)
+## Build and terminal
 
-The current build enables only the normally-open QUICK button on GPIO32 to GND.
-It uses INPUT_PULLUP. For the 0.5 m cable an external 10 kohm pull-up between
-GPIO32 and 3.3 V is recommended; the button still closes to GND. Route signal
-and ground together. There is no direct VCC connection through the button.
-
-Sampling runs in a separate task at nominal 5 ms, with 30 ms stable-state
-debounce and an eight-event queue. It remains active during TFT/SD work.
-One press produces one QUICK; holding does not repeat. A stable release is
-required before another press. A button held at startup must first be released.
-Hardware and terminal both use `TerminalApp::quick`, including menu confirmation,
-quick views and alarm acknowledgement. The terminal prints `BUTTON QUICK: GPIO32`
-for each accepted physical press. LEFT/RIGHT/SETTINGS remain terminal-only.
-
-The change was initially prepared without upload, then uploaded on COM4 after
-explicit authorization. All 20 timing and 57 control assertions passed on ESP32,
-including the six debounce assertions. The physical switch is not yet verified.
-Now verify one event per press, no hold repeat,
-quick-page timeout, and alarm acknowledgement. Release the physical button
-during the automated terminal harness.
-
-## Start the terminal
-
-From the project directory in PowerShell:
+The default `esp32dev` build has all acquisition, timing, UI, calibration,
+pressure alarm and SD features. `esp32dev-dev` additionally enables simulator,
+button injection and selftests via `LAP_TIMER_DEV=1`; none is enabled by default.
+GPIO and the physical panel gestures are identical in both builds.
 
 ```powershell
-.\.venv\Scripts\platformio.exe run
-.\.venv\Scripts\platformio.exe run --target upload --upload-port COM4
+.\.venv\Scripts\platformio.exe run -e esp32dev
+.\.venv\Scripts\platformio.exe run -e esp32dev-dev
 .\.venv\Scripts\platformio.exe device monitor --port COM4 --baud 115200 --filter send_on_enter --echo
 ```
 
-Close an existing monitor before upload or the automated test. Ctrl+C closes
-the monitor. Every command below requires Enter; CR, LF and CRLF are supported.
-The reader is bounded to 191 characters, discards an entire overflowing line,
-and consumes at most 128 input bytes per acquisition-loop iteration. Commands
-are case-sensitive, lowercase, except the preserved single-letter aliases.
+Every command ends with Enter; Ctrl+C closes the monitor. No immediate or
+single-letter legacy mode remains. `help` lists commands available in the
+running build. `status`, `display status`, `verbose on/off`, `settings show`,
+`screen race/camera`, `set ...`, IMU and SD diagnostics work in the normal build.
 
-```text
-help
-status
-selftest
-sd readback
-sd selftest
-```
+## Physical settings navigation
 
-`selftest` runs the preserved 20 GPS geometry/timing assertions and the isolated
-control tests. The control tests write only the `lt-selftest` NVS namespace.
-`sd selftest` exercises load, sequence and corrupt-slot fallback in `/test/`,
-using reserved geometry 54455354 and date 20991231. It never replaces a real BEST.
-`sd readback` is an explicit temporary-file diagnostic, not the normal writer.
+RED OFF/ON arms entry; CENTER + GREEN for two seconds opens SETTINGS only
+when the existing actual lap/speed/alarm guards allow it. LEFT/RIGHT + GREEN
+moves one row, CENTER + GREEN selects. The switch alone never navigates.
+Numeric values retain the 600 ms initial delay, 80 ms/0.05 bar pressure repeat
+and 250 ms repeat for other numbers. Direction change or release cancels repeat.
+RED OFF exits and discards drafts. Root BACK consumes arming until RED OFF/ON.
 
-## Configurable QUICK pages and themes
+BACK is row zero and initially selected in root, every category, nested group,
+choice page, numeric entry page, SD FILES and IMU wizard. Returning selects the
+originating item in the parent. BACK never maps to a configuration value.
+Choice highlighting is red; the saved value is green. Only confirmation saves.
+A numeric page first offers BACK / EDIT VALUE. Select EDIT VALUE before changing
+numbers. Pressure confirms MIN, then MAX, then saves the complete valid pair.
 
-SETUP now starts with DEFAULT SCREEN, GREEN 1, GREEN 2, GREEN 3, BACKGROUND,
-then the existing speed/pressure/temperature/acceleration unit entries.
-Each QUICK slot independently selects one of eight pages; duplicates are allowed:
+Root: BACK, DISPLAY, CALIBRATION, UNITS, TRACK, TPMS, STORAGE.
+DISPLAY groups QUICK INFO (QUICK INFO 1/2/3) and LAP DELTA (SECONDS PER LIGHT).
+Quick pages and their five-second return are preserved. They do not configure
+comparison lights. `quickSlots` and `deltaIndex` retain their NVS v4 meaning.
 
-| Command value | Page |
-| --- | --- |
-| last_lap | LAP number + last completed lap time |
-| rear_pressure | REAR PRESSURE + measured value |
-| front_pressure | FRONT PRESSURE + measured value |
-| best_lap | BEST LAP + complete reference lap time |
-| max_angle | Largest absolute valid lean angle in this session |
-| max_speed | Highest valid GNSS speed in this session |
-| max_acceleration | Highest positive valid longitudinal acceleration |
-| max_deceleration | Largest braking magnitude, displayed positive |
+Quick tokens: `last_lap`, `rear_pressure`, `front_pressure`, `best_lap`,
+`max_angle`, `max_speed`, `max_acceleration`, `max_deceleration`.
+Themes: `black`, `white`, `blue`. Commands: `set quick1 TOKEN` (also quick2/3),
+`set background THEME`, `max reset` (current source maxima).
 
-These pages have only the heading and a very large value. Units are in the
-heading (angle uses the degree sign); missing values are `--`. Temperature,
-battery, receipt age, freshness text and comparison footers are removed from
-the pressure/last-lap pages. TEST is still explicitly marked during simulation.
-The ordinary LAP HOLD and green BEST overlays use the same minimal layout.
+CAMERA keeps the main timer, pressures, speed and incremental lean bar.
+Before calibration, a fresh accelerometer estimate is explicitly marked RAW;
+it does not validate the dynamic estimate or IMU-derived maxima. Calibration
+and the user's separate lean zero still apply. Stale/lost IMU remains invalid.
 
-```text
-set quick1 last_lap
-set quick2 max_angle
-set quick3 max_speed
-set background black
-set background white
-set background blue
-```
+## Development-only controls
 
-BLACK uses light text, WHITE uses dark text and DARK BLUE uses light text.
-Warning/alarm and new-record colors retain their meaning. Units are configured
-with `set speed kmh/mph`, `set pressure bar/psi/kpa`, `set temperature c/f`,
-and `set accel g/ms2`, or through their SETUP entries. Alarm limits and stored
-maxima remain in canonical bar, km/h and g; display conversions do not change them.
-
-The three presses are consecutive QUICK page advances, not a double-click
-gesture. Five seconds without a press returns the base screen; the next press
-starts at GREEN 1. Confirmed mappings, theme and units persist in NVS. Schema 4
-migrates the exact old schema-3 record, retaining confirmed settings and adding
-the default LAST LAP / REAR / FRONT mapping and BLACK background. A corrupt
-record is rejected, not silently interpreted as another schema.
-
-Peaks belong to the current boot/session and reset on day/track/timezone scope
-changes. `max reset` clears only the current REAL/TEST source's peaks. Lean-zero
-or mounting calibration changes clear IMU-derived peaks. Invalid IMU samples
-do not produce an angle/acceleration maximum; without calibration those pages
-remain `--`. Dynamic IMU maxima have the same experimental accuracy limits as
-the camera estimator. Pressure/IMU loss does not erase earlier valid session peaks.
-
-```text
-test on
-test motion -44 180 0.55
-test motion 40 170 -0.80
-set quick1 max_angle
-key quick
-status
-test off
-```
-
-`test motion` affects isolated TEST maxima only. `v` on a minimal page checks
-that the former footer area is actually background in TFT RAM.
-
-## Physical panel: green, red, left/right
-
-Current option-editor bench verification on COM4: firmware write/hash PASS;
-`selftest` reports 20 timing + 139 control assertions passed, zero failed.
-The pressure-only hardware measurement increased the uncommitted value by
-2.00 bar in 4.078 seconds and verified unchanged confirmed configuration.
-These uploads/tests were performed with the SD card removed.
-Physical contact operation still needs a manual check; the bench read RIGHT
-closed, so return the real direction switch to CENTER before manual navigation.
-
-```powershell
-.\.venv\Scripts\python.exe tools/test_panel.py --port COM4
-```
-
-Run stationary, in REAL mode with settings closed, and leave physical contacts
-untouched during the test. It preserves confirmed configuration and exits with
-virtual GREEN released, RED OFF, direction CENTER. Its log is
-`.platformio/panel_integration.log`; built-in assertions were captured in
-`.platformio/panel_selftest.log`.
-
-Separate-option editors, directional GREEN stepping and faster pressure repeat
-are uploaded. A full integration attempt was interrupted by the real motion
-guard when GNSS speed exceeded 6 km/h; this was recorded, not bypassed. A later
-pressure-only run met the five-second target. Minor rendering jitter is handled
-with scheduled repeat deadlines instead of adding the interval to each late poll;
-long stalls discard the backlog rather than issuing multiple steps in one tick.
-
-The subsequent full run passed 19 checks, including all choice-editor checks and
-+2.20 bar in 4.62 s with unchanged confirmed settings, before REAL GPS motion
-blocked root re-entry. The last three BACK/rearming checks then passed separately
-in `.platformio/panel_root.log` (a fresh OFF/ON retry was needed once). The full
-uninterrupted suite is not claimed PASS. Pressure-only measurement is saved in
-`.platformio/pressure_timing.log`. No GPS guard was disabled to obtain these results.
-
-The category tree and raw CAMERA fallback are uploaded and tested. On the real
-uncalibrated IMU `status` confirms CAMERA angle_valid=1 raw=1. Tests preserve
-confirmed configuration. Visual menu layout/colors and physical presses still
-need the user's manual check.
-
-Current pin assignment supersedes the old GPIO16 proposal:
-GREEN momentary GPIO32, RED latch GPIO5, LEFT GPIO34, RIGHT GPIO35.
-All contacts close to common GND. GPIO34 and GPIO35 each need an external
-10 kohm pull-up to **3.3 V**, not VIN/5 V. They have no internal pull-ups.
-GPIO32/5 use INPUT_PULLUP; external 10 kohm is recommended for long wires.
-GPIO5 straps SDIO-slave timing at reset; this project does not use SDIO slave.
-SD SPI retains GPIO13/15/2/14. GPIO0/12 are not used for buttons.
-
-See [README: wiring and navigation](../README.md#gumbi-vezava-in-navigacija)
-for the physical operation. The new menu labels are GREEN 1/2/3; existing
-`quick1/2/3` setting tokens and `key quick` remain compatible.
-
-The contact acquisition task samples all four inputs every nominal 5 ms, with
-30 ms debounce on both edges. Short GREEN emits once on release. A 2-second
-hold emits once and consumes the release. RED only arms entry after OFF/ON;
-GREEN must start afterwards. Startup-held inputs require release/rearming.
-LEFT/RIGHT now select the modifier for GREEN; the switch alone never moves a
-row. Leave the direction held and click GREEN to step repeatedly. CENTER GREEN
-selects/opens/confirms. Both-closed ignores menu actions. Outside settings,
-GREEN still performs normal review/acknowledgement. Contact-queue overflow closes settings and resets
-arming rather than replaying an incomplete gesture.
-
-Entry requires direction CENTER, RED ON then GREEN held 2 seconds, no running REAL timing lap,
-no fresh REAL GPS speed above 5 km/h and no unacknowledged alarm. Speed freshness
-is <1500 ms with a valid current fix. TEST does not substitute fake motion for
-these guards. Motion during a hold cancels that attempt. Motion/lap start while
-the menu is open closes it, discards an unconfirmed edit and requires OFF/ON.
-No GPS fix still permits deliberate RED + hold entry; it is not proof of rest.
-The category menu is DISPLAY, CALIBRATION, UNITS, TRACK, TPMS, STORAGE, BACK.
-LEFT/RIGHT + a GREEN press moves up/down a scrolling list. CENTER + short GREEN
-enters a category, opens an editor, confirms a value or selects BACK. A setting
-opens a separate full-page choice list, including BACK to cancel. Numeric
-editors show the active value large. CENTER long GREEN remains an alternative
-to short select/confirm. BACK in a child returns to categories; root BACK exits
-to RACE and requires RED OFF/ON before re-entry. RED OFF exits immediately and
-discards an unconfirmed edit. Long GREEN no longer exits the tree menu.
-The selected row is RED, the confirmed setting GREEN until movement/new editing.
-All menu text is uppercase; row/value changes use buffered updates without full
-clears. Opening/closing a separate editor redraws the page once.
-The existing direct `switch settings` diagnostic retains flat edit behavior;
-physical contacts and `button ...` use the new category tree.
-
-Guarded terminal simulation (real elapsed time, no `test tick` required):
+All `test ...`, `button ...`, `key ...`, `switch ...`, `selftest` and `sd selftest`
+commands below require the development build. Physical guards still use REAL
+lap and speed in TEST. `switch settings on` and `key` are direct diagnostic
+controls; use `button` to exercise actual entry protection.
 
 ```text
 button red off
@@ -211,78 +66,28 @@ button red on
 button green down
 ```
 
-Wait 2 seconds, then `button green up`: SETTINGS opens without entering edit.
-`button direction right`, then GREEN down/up, moves one item. More GREEN clicks
-advance more rows without recentering. CENTER + GREEN enters a category/editor
-or commits a value and returns. Use each level's BACK for navigation, or
-finish `button red off`. Root BACK must not reopen until RED OFF/ON.
-`status` includes PANEL contact state, arming, queue drops and REAL motion guards.
-Do not touch physical contacts during terminal simulation.
+Wait at least two seconds, then `button green up`. The selected row is BACK.
+Move with `button direction right` then GREEN down/up per row; use direction
+CENTER and a fresh GREEN down/up to select. Finish with `button red off`.
 
-Numeric hold: LEFT/RIGHT + GREEN down steps once immediately. After 600 ms,
-pressure MIN/MAX repeat every 80 ms (0.05 bar/step); other numeric fields repeat
-every 250 ms. Zero to 2 bar takes 3.64 s in the deterministic timing test. The
-integration test holds for four seconds and verifies at least 2 bar of increase
-within five seconds, without committing the draft. Bounds clamp at zero/20 bar.
-No catch-up burst occurs after a late UI/SD iteration. Release, direction change,
-alarm or motion stops repeat. A direction-to-center change during a held press
-cannot become a confirm. Enums/categories never auto-repeat or long-confirm
-when GREEN began with a direction held. MIN then MAX commit atomically.
-`status` includes editor_row/choices/numeric/range_part and EDITOR value.
+`test on/off/reset` isolates synthetic data, references and maxima from REAL.
+`test pressure front/rear BAR`, `test sensor front/rear lost`,
+`test motion ANGLE_DEG SPEED_KMH ACCEL_G` and `test tick MILLISECONDS`
+provide explicitly labelled inputs. Changing TEST never replays physical GPS.
 
-CAMERA now uses a fresh (<150 ms) accelerometer roll angle if the IMU is not
-calibrated, respecting the existing lean zero and labeling RAW / UNCALIBRATED.
-Loss, stale samples and undefined roll are still invalid. This display fallback
-does not make the dynamic estimator or IMU maxima valid, and is not substituted
-for a calibrated estimator that fails its timing/attitude checks. `status`
-includes CAMERA angle_valid/raw/angle_deg and MENU TREE depth/category/row/confirmed.
+Focused settings check without board, calibration or SD writes:
 
-## Menu and switch simulation
-
-```text
-screen race
-switch direction right
-switch direction right
-switch direction center
-switch direction left
-switch direction center
-switch settings on
-key right
-key quick
-key right
-key quick
-switch settings off
+```powershell
+.\.venv\Scripts\python.exe tools/test_storage_imu.py --suite settings
 ```
 
-These legacy direct diagnostic events bypass panel arming. In this legacy
-path LEFT selects RACE, RIGHT selects CAMERA; CENTER leaves the screen alone.
-Physical contacts and `button direction ...` do nothing outside settings.
-Repeated switch states do not generate new edges. A move directly from LEFT to
-RIGHT without CENTER does not generate a second step. `key left/right` is the
-convenient complete center->direction->center gesture.
-SETTINGS ON is latched. LEFT/RIGHT select a menu item; QUICK enters editing,
-LEFT/RIGHT alter the draft, QUICK confirms and saves. OFF discards only an
-unconfirmed draft. FRONT/REAR MIN/MAX edit MIN first, then MAX; their second
-confirmation commits the pair. NAZAJ leaves settings until OFF->ON.
-Calibration actions and SD status are also reachable from this menu. Sensor IDs
-can be typed with `set`; the menu offers explicitly named SIM-F/SIM-R placeholders.
-No BLE discovery is implemented. All four panel inputs now have the hardware
-assignments listed above; new contacts still require physical testing.
-
-`screen race/camera` changes the runtime base. `set base race/camera` changes
-and saves the startup default. CAMERA uses the RACE dashboard layout: rear
-pressure top left, front pressure top right, a large live lap timer, centered
-speed below the timer, and the incremental lean bar with the degree value at
-the bottom. GPS/battery/SD and lap/delta indicators remain. Speed follows the
-selected KM/H or MPH unit. The uncalibrated angle feeds that same lean bar;
-RAW is a small status-line label, not a separate angle-only screen. Missing
-speed/angle shows `--`. This mode is a display for filming, not video recording.
-
-QUICK outside settings cycles LAST LAP -> REAR PRESSURE -> FRONT PRESSURE.
-Each press renews a five-second deadline. On expiry the current base returns.
-Before the first completed lap LAST LAP is `--`. Missing or stale pressure
-shows SENSOR LOST / `--`, never a fabricated zero. The pressure quick page
-also shows temperature, battery and receipt age when available.
+It checks BACK, QUICK INFO, preserved values, numeric-repeat gating and exact
+positive/negative light thresholds. It can also run as `selftest settings`
+in the development firmware. The retained broader `selftest`,
+`selftest storage-imu`, `tools/test_panel.py` and `tools/test_terminal.py`
+are optional development checks; do not rerun hardware suites for a UI cleanup.
+The scripts need the development build. The host helper accepts a C++ compiler
+on PATH, or Zig installed under `.pio/host-tools` (instructions in the script).
 
 ## LAP HOLD, BEST and sectors
 
@@ -310,8 +115,12 @@ held for 5..15 seconds. Expiry is nonblocking and counted from the event, also
 while an alarm/menu/quick page covers it. The initial reference is not a BEST
 improvement. Comparison uses the complete old reference before replacing it.
 At S1/S2 delta is cumulative; finish delta is the complete lap. Delta resets
-for the next lap. ±10 ms is neutral. Three display segments are independent
-of the three timing sectors; each represents a started 0.1/0.2/0.5/1.0 s step.
+for the next lap. Three display levels are independent of the three timing
+sectors. Both sides mirror min(3, floor(abs(delta_ms) / step_ms)), using one
+shared calculation. Below one step and without a reference they stay neutral.
+Steps are 100/200/500/1000 ms, identical for faster (green) and slower (red) laps.
+Delta updates at S1/S2/finish and holds between boundaries; it is not a
+continuous prediction from a stored trajectory.
 
 The historical AiM PomposaMotoL start/finish remains at 44.710284,12.214867.
 The two project-derived thirds are 44.712024124,12.214997752 and
@@ -419,7 +228,8 @@ PREVIOUS navigation. `sd files [FIRST_INDEX]` prints full paths in the terminal.
 The directory walk handles root plus three nested levels and processes one
 entry between queued writes, instead of pausing CSV acquisition for a full scan.
 
-`STORAGE > FORMAT SD` defaults to NO; only ERASE ALL FILES requests FAT32
+`STORAGE > FORMAT SD` opens on BACK, then NO and ERASE ALL FILES. Only the
+explicit ERASE ALL FILES choice requests FAT32
 formatting. Logging must be OFF and its file closed, with REAL selected, no
 active lap/movement/alarm or other format. Formatting deletes all files and SD
 best references; successful completion clears the in-memory best reference.
@@ -467,7 +277,7 @@ a power-loss guarantee. Logging is OFF by default and persists once confirmed.
 
 Dated BEST uses alternating checksummed slots with version, day, geometry,
 lap and its three sectors. Replacement verifies a temporary file and preserves
-the other valid slot; corrupt-slot fallback is tested on the physical card.
+the other valid slot; corrupt-slot fallback preserves the other valid slot.
 These are separate from session logging. TEST cannot write a production slot.
 
 `test sd slow` delays TEST writes by 200 ms, `test sd fail` fails TEST writes,
@@ -482,8 +292,9 @@ Rotation rows are these bike axes expressed in sensor coordinates, determinant
 +1. Gyro bias, the full rotation and user lean zero are separate quantities.
 
 The current menu uses `CALIBRATION > IMU CALIBRATE` or terminal `imu calibrate`.
-Follow UPRIGHT, LEFT, RIGHT prompts; press GREEN with direction CENTER (or
-`imu next`) once the bike is in each requested pose. Each capture needs two
+Follow UPRIGHT, LEFT, RIGHT prompts. Each step opens on BACK; select MEASURE
+with LEFT/RIGHT + GREEN, then CENTER + GREEN (or `imu next`) once the bike is
+in the requested pose. BACK safely cancels an unfinished capture. Each capture needs two
 seconds; an OK is shown before the next instruction. Tilts can differ, 5..70
 degrees each, on opposite sides of the same roll plane. The full rotation and
 upright gyro bias are saved only after all three poses pass; old user zero is
@@ -496,7 +307,7 @@ upright capture permits mean gyro bias up to 8 deg/s. Mean gravity must be
 within 0.18 g of 1 g. At least 60 samples and two seconds of continuous data
 are required; gaps over 120 ms restart capture. Failed windows retry.
 
-`selftest storage-imu` runs only new synthetic SD/IMU assertions; it never
+In the development build, `selftest storage-imu` runs synthetic SD/IMU assertions; it never
 formats a card or writes NVS. Without a board, the same C++ tests run via
 `python tools/test_storage_imu.py` with a host C++ compiler (see script).
 
@@ -530,33 +341,3 @@ latency/noise/course at low speed, vertical acceleration, vibration, tire slip,
 gyro drift and GNSS loss limit it. The supplied forward axis must be physically
 verified. Raw samples remain in SD logs for further work. A completed physical
 wizard and field validation have NOT been performed during these terminal tests.
-
-## Repeatable test and legacy commands
-
-Verified on ESP32 COM4: build/upload PASS, 20/20 timing assertions, 51/51
-control assertions and 28 terminal integration scenarios. Physical SD tests
-passed readback, reference reload/corrupt-slot fallback, TEST separation,
-injected slow/failing writes, overflow accounting and REAL GPS/IMU logging.
-The sampled tail across RACE/CAMERA changes had IMU dt 19454..20499 us.
-These values describe this bench run, not guaranteed timing bounds.
-
-```powershell
-.\.venv\Scripts\python.exe tools/test_terminal.py --port COM4
-```
-
-The harness backs up settings to `.platformio/terminal_settings_before.json`,
-uses TEST data, exercises SD diagnostics/faults and a brief REAL raw-data log,
-then restores changed settings and REAL mode in `finally`. It does not change
-calibration or inject physical position. Raw transcript: `tools/terminal_test.log`
-(ignored by git). A restore failure is explicitly reported, with backup path.
-
-Preserved one-character commands require Enter: `t` geometry tests, `v` TFT RAM
-readback, `n` legacy diagnostics, `s` settings, `q`/`b`/Escape exit, `k` track
-menu, `g` green preview, `z` calibrated lean zero, `c` zero reset, `r`/`p`
-stationary statistics. `n` is rejected in TEST so an unlabelled diagnostic
-screen cannot conceal the TEST source. `legacy on` enables immediate single
-characters; `!` returns line mode. Never type word commands in immediate mode.
-
-Physical switch wiring, BLE radio decoding, track crossing accuracy, display
-appearance/flicker from the side, true power-loss endurance and dynamic riding
-accuracy still require physical checks. The GPIO32 addition above is uploaded; GPIO5/34/35 are now enabled in the panel firmware; physical testing remains.

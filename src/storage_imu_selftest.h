@@ -48,14 +48,14 @@ inline bool runStorageImuSelfTests(Stream& out){
   for(unsigned i=0;i<6;++i){bool f[6]={};f[i]=true;check(!Sd::formatAllowed(f[0],f[1],f[2],f[3],f[4],f[5]),"format safety condition blocks erase");}
   std::unique_ptr<Control::Model> holder(new Control::Model());auto& m=*holder;
   m.openTree(1);m.menuDepth=1;m.menu=Control::SdFormat;m.treeLong(2);
-  check(m.editing&&m.editRow==0&&m.action==0,"format editor defaults to NO");m.treeShort(3);
-  check(!m.editing&&m.action==0,"confirming NO never requests erase");m.treeLong(4);m.editRow=m.choiceCount();m.treeShort(5);
-  check(m.action==0&&!m.editing,"BACK never requests erase");m.treeLong(6);m.editRow=1;m.treeShort(7);
+  check(m.editing&&m.editRow==0&&m.action==0,"format editor defaults to BACK");m.treeShort(3);
+  check(!m.editing&&m.action==0,"confirming BACK never requests erase");m.treeLong(4);m.editRow=1;m.treeShort(5);
+  check(m.action==0&&!m.editing,"NO never requests erase");m.treeLong(6);m.editRow=2;m.treeShort(7);
   check(m.action==Control::SdFormat&&m.specialPage==Control::SdFormat,"explicit ERASE selection requests format (not executed by test)");
-  m.action=0;m.specialPage=Control::SdFiles;m.fileFirst=0;m.filePage.count=5;m.filePage.total=12;m.fileCursor=5;m.specialSelect();
+  m.action=0;m.specialPage=Control::SdFiles;m.fileFirst=0;m.filePage.count=5;m.filePage.total=12;m.fileCursor=6;m.specialSelect();
   check(m.fileFirst==5&&m.filesLoading&&m.action==Control::SdFiles,"file listing next page");
-  m.filesLoading=false;m.fileCursor=5;m.specialSelect();check(m.fileFirst==0,"file listing previous page");
-  std::snprintf(m.filePage.entries[0].name,sizeof(m.filePage.entries[0].name),"/20261025/session/s000001.csv");char label[80];m.fileRowLabel(0,label,sizeof(label));
+  m.filesLoading=false;m.fileCursor=6;m.specialSelect();check(m.fileFirst==0,"file listing previous page");
+  std::snprintf(m.filePage.entries[0].name,sizeof(m.filePage.entries[0].name),"/20261025/session/s000001.csv");char label[80];m.fileRowLabel(1,label,sizeof(label));
   check(!std::strcmp(label,"s000001.csv"),"filename stays visible without long directory prefix");
   m.filesLoading=false;m.filePage=Sd::Page();m.fileCursor=0;m.specialSelect();check(m.specialPage==0,"empty or absent card retains BACK navigation");
   out.printf("SD/IMU SELFTEST: %u passed, %u failed (no card erased, no calibration saved)\n",passed,failed);return failed==0;

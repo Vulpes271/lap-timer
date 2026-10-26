@@ -5,30 +5,29 @@
 #include <SPI.h>
 #include "gps_config.h"
 #include "dashboard.h"
-#include "stationary.h"
+#include "build_config.h"
 #include "device_settings.h"
 #include "lap_timing.h"
 #include "pomposa_track.h"
 #include "track_catalog.h"
-#include "timing_selftest.h"
 #include "terminal_app.h"
+#if LAP_TIMER_DEV
+#include "timing_selftest.h"
 #include "control_selftest.h"
 #include "storage_imu_selftest.h"
+#endif
 #include "quick_button.h"
 
 namespace {
 // NEO TX -> ESP32 RX19; NEO RX -> ESP32 TX4.
 constexpr uint32_t FRESH_MS = 5000;
 constexpr uint32_t REPORT_MS = 2000;
-constexpr bool STATIONARY_TEST = true;  // Legacy per-GGA readback disabled; terminal logger owns SD sessions.
-StationaryStats stationary;
 DeviceSettings deviceSettings;
 TerminalApp app;
 PanelButtons panelButtons;
 QueueHandle_t imuSamples=nullptr;
 std::atomic<uint32_t> imuSampleDrops{0};
 Timing::LapTimer lapTimer(Tracks::PomposaLong);
-unsigned int selectedTrack = 0;
 float lastGx = 0, lastGy = 0, lastGz = 0;
 HardwareSerial gpsSerial(2);
 uint32_t gpsBaud = 9600;
@@ -53,11 +52,8 @@ Dashboard dashboard;
 bool currentGpsFix = false, lastImuOk = false;
 uint32_t lastImuAt = 0;
 float lastAx = 0, lastAy = 0, lastAz = 0;
-uint32_t lastImuUs=0;
 bool dailyReferencePending=false;
-char logPath[24] = {};
-bool loggingReady = false;
-uint32_t loggedRows = 0, logErrors = 0, maxLogUs = 0, missedGpsEpochs = 0;
+uint32_t missedGpsEpochs = 0;
 
 void reloadDailyReference() {
   Control::Reference reference;
@@ -70,7 +66,6 @@ void reloadDailyReference() {
   Serial.printf("REFERENCE: %s day=%lu geometry=%08lx best=%.3f\n",found?"SD":"SESSION/EMPTY",(unsigned long)app.model.day,(unsigned long)app.model.geometry,reference.lapMs);
 }
 void selectTrack(unsigned index) {
-  selectedTrack=index;
   lapTimer.selectTrack(*Tracks::Catalog[index]);
   app.model.geometry=0;
   app.model.setScope(0,Control::trackHash(*Tracks::Catalog[index]));
@@ -93,86 +88,6 @@ void referenceDate(uint32_t utc,uint32_t now,bool fix) {
     Serial.printf("REFERENCE SCOPE: %s day=%lu; active lap discarded on scope change\n",date?"GNSS LOCAL DAY":"UNDATED SESSION",(unsigned long)date);
   }
   (void)now;
-}
-
-void beginLog() {
-  if (STATIONARY_TEST) {
-    Serial.println("LEGACY READBACK: izklopljen. SD se upravlja z 'set logging on/off'; statistika r/p.");
-    return;
-  }
-  if (!sdReady) return;
-  // Preserve existing files, including files from earlier ESP32 boots.
-  bool available = false;
-  for (unsigned int index = 0; index < 10000; ++index) {
-    snprintf(logPath, sizeof(logPath), "/gps%04u.csv", index);
-    if (!Sd::card().exists(logPath)) { available = true; break; }
-  }
-  if (!available) { Serial.println("SD LOG: ni prostega imena datoteke."); return; }
-  File file = Sd::card().open(logPath, FILE_WRITE);
-  const char* header = "seq,esp_ms,gps_utc_ms,fix,lat,lon,satellites,imu_ok,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n";
-  if (!file) { ++logErrors; return; }
-  const bool ok = file.print(header) == strlen(header);
-  file.close();
-  loggingReady = ok;
-  if (!ok) ++logErrors;
-  Serial.printf("SD LOG: %s, datoteka=%s. Vsak GPS GGA zapis preverimo z branjem.\n",
-                ok ? "pripravljen" : "NAPAKA", logPath);
-}
-
-bool readRegisters(uint8_t address, uint8_t reg, uint8_t* data, uint8_t count);
-int16_t signedWord(const uint8_t* data);
-
-void logGpsEpoch(uint32_t utc, uint32_t receivedAt, bool currentFix) {
-  if (!loggingReady) return;
-  const uint32_t started = micros();
-  uint8_t imu[14] = {};
-  const bool imuOk = imuAddress && readRegisters(imuAddress, 0x3B, imu, sizeof(imu));
-  lastImuOk = imuOk;
-  if (imuOk) {
-    lastImuAt = millis();
-    lastAx = signedWord(imu) / 16384.0f;
-    lastAy = signedWord(imu + 2) / 16384.0f;
-    lastAz = signedWord(imu + 4) / 16384.0f;
-  }
-  const bool fix = currentFix && gps.location.isValid() && gps.location.age() < 400;
-  const bool sats = gps.satellites.isValid() && gps.satellites.age() < FRESH_MS;
-  char line[256];
-  const int length = snprintf(line, sizeof(line),
-      "%lu,%lu,%lu,%u,%.7f,%.7f,%lu,%u,%.4f,%.4f,%.4f,%.3f,%.3f,%.3f\n",
-      static_cast<unsigned long>(loggedRows + 1), static_cast<unsigned long>(receivedAt),
-      static_cast<unsigned long>(utc), fix, fix ? gps.location.lat() : 0.0,
-      fix ? gps.location.lng() : 0.0, sats ? gps.satellites.value() : 0UL, imuOk,
-      signedWord(imu) / 16384.0, signedWord(imu + 2) / 16384.0,
-      signedWord(imu + 4) / 16384.0, signedWord(imu + 8) / 131.0,
-      signedWord(imu + 10) / 131.0, signedWord(imu + 12) / 131.0);
-  bool ok = length > 0 && length < static_cast<int>(sizeof(line));
-  File file;
-  size_t offset = 0;
-  if (ok) {
-    file = Sd::card().open(logPath, FILE_APPEND);
-    ok = static_cast<bool>(file);
-  }
-  if (ok) {
-    offset = file.size();
-    ok = file.write(reinterpret_cast<const uint8_t*>(line), length) == static_cast<size_t>(length);
-  }
-  if (file) file.close();  // Commit data and file size before readback.
-  if (ok) {
-    file = Sd::card().open(logPath, FILE_READ);
-    char readback[256];
-    ok = file && file.seek(offset) &&
-         file.read(reinterpret_cast<uint8_t*>(readback), length) == static_cast<size_t>(length) &&
-         memcmp(readback, line, length) == 0;
-    if (file) file.close();
-  }
-  const uint32_t duration = micros() - started;
-  if (duration > maxLogUs) maxLogUs = duration;
-  if (ok) ++loggedRows;
-  else {
-    ++logErrors;
-    loggingReady = false;
-    Serial.println("SD LOG: napaka zapisa ali primerjave prebranih podatkov; zapis ustavljen.");
-  }
 }
 
 void detectSd() {
@@ -261,50 +176,25 @@ void trackGga(TinyGPSCustom& timeField, TinyGPSCustom& qualityField) {
     Serial.println("TIMING: manjka sektor, krog ni shranjen. Zacet nov krog.");
   else if (timingEvent == Timing::Event::Interrupted)
     Serial.println("TIMING: trenutni krog neveljaven (GPS/kakovost/skok/cas). Cakam nov prehod.");
-  if (STATIONARY_TEST && currentGpsFix && gps.location.isValid() && gps.location.age() < 400)
-    stationary.addGps(gps.location.lat(), gps.location.lng());
-  logGpsEpoch(epoch, now, currentGpsFix);
+
 }
 
-void sampleStationaryImu() {
+void consumeImuSamples() {
   if(!imuSamples)return;
   Imu::Sample sample;
   while(xQueueReceive(imuSamples,&sample,0)==pdTRUE){
-    lastImuOk=sample.valid;lastImuAt=sample.ms;lastImuUs=sample.us;
-    if(!sample.valid){++stationary.imuErrors;app.imu.process(sample);app.logImu(sample);continue;}
+    lastImuOk=sample.valid;lastImuAt=sample.ms;
+    if(!sample.valid){app.imu.process(sample);app.logImu(sample);continue;}
     lastAx=sample.accel.x;lastAy=sample.accel.y;lastAz=sample.accel.z;
     lastGx=sample.gyro.x;lastGy=sample.gyro.y;lastGz=sample.gyro.z;
     app.imu.process(sample);app.logImu(sample);
     app.model.observeImu(false,deviceSettings.correctedLean(app.imu.rollDegrees()),app.imu.valid,
                         app.imu.longitudinalG,app.imu.valid);
-    stationary.addImu(lastAx,lastAy,lastAz,lastGx,lastGy,lastGz);
   }
   if(app.rawImuDrops!=imuSampleDrops.load()){
     app.rawImuDrops=imuSampleDrops.load();
     if(app.model.config.logging&&!app.model.testMode){char detail[48];snprintf(detail,sizeof(detail),"total=%lu",(unsigned long)app.rawImuDrops);app.logger.event(false,millis(),"IMU_QUEUE_DROP",detail);}
   }
-}
-
-void reportStationary() {
-  if (stationary.paused || stationary.warming()) {
-    Serial.printf("MIR TEST: %s, IMU n=%lu, GPS n=%lu\n",
-                  stationary.paused ? "USTAVLJEN" : "UMIRJANJE",
-                  static_cast<unsigned long>(stationary.accelNorm.count),
-                  static_cast<unsigned long>(stationary.east.count));
-    if (!stationary.accelNorm.count && !stationary.east.count) return;
-  }
-  Serial.printf("MIR TEST: %lu s, IMU n=%lu, I2C napake=%lu | |a|=%.5f g, sigma=%.5f g, odmik od 1g=%+.2f %%\n",
-                static_cast<unsigned long>(stationary.seconds()),
-                static_cast<unsigned long>(stationary.accelNorm.count),
-                static_cast<unsigned long>(stationary.imuErrors), stationary.accelNorm.mean,
-                stationary.accelNorm.sigma(), (stationary.accelNorm.mean - 1) * 100);
-  Serial.printf("GYRO povprecje [deg/s]: %+.4f %+.4f %+.4f | sigma: %.4f %.4f %.4f\n",
-                stationary.gyro[0].mean, stationary.gyro[1].mean, stationary.gyro[2].mean,
-                stationary.gyro[0].sigma(), stationary.gyro[1].sigma(), stationary.gyro[2].sigma());
-  Serial.printf("GPS MIR: n=%lu, odmik=%.2f m, najvec=%.2f m, raztros=%.2f m | hitrost n=%lu, povprecje=%.3f, max=%.3f km/h\n",
-                static_cast<unsigned long>(stationary.east.count), stationary.drift,
-                stationary.maxDrift, stationary.spread(), static_cast<unsigned long>(stationary.speed.count),
-                stationary.speed.mean, stationary.speed.maximum);
 }
 
 void reportTiming() {
@@ -401,23 +291,6 @@ bool zeroLean() {
   if(ok&&app.model.config.logging){char detail[48];snprintf(detail,sizeof(detail),"zero=%.3f",deviceSettings.leanZeroDegrees);app.logger.event(app.model.testMode,app.model.time(millis()),"LEAN_ZERO",detail);}
   Serial.printf("IMU ZERO: %s value=%+.3f (requires calibrated stable IMU)\n",ok?"SAVED":"REJECTED",deviceSettings.leanZeroDegrees);return ok;
 }
-void legacyCommand(char command) {
-  if(command>='A'&&command<='Z')command+=32;
-  if(command=='t')runTimingSelfTests(Serial);
-  else if(command=='v')dashboard.reportRendering();
-  else if(command=='n'){if(app.model.testMode){Serial.println("ERR TEST: use screen race/camera");return;}app.legacyView=true;dashboard.nextScreen();}
-  else if(command=='s'){app.legacyView=false;app.model.input(app.model.settingsOn?Control::Input::SettingsOff:Control::Input::SettingsOn,millis());}
-  else if(command=='q'||command=='b'||command==27){app.legacyView=false;app.model.input(Control::Input::SettingsOff,millis());app.model.base=Control::Base::Race;}
-  else if(command=='k'){app.legacyView=false;app.model.input(Control::Input::SettingsOn,millis());app.model.menu=Control::Track;}
-  else if(command>='1'&&command<='9'){auto next=app.model.config;next.track=command-'1';if(app.model.commit(next))Serial.println("TRACK selection accepted");}
-  else if(command=='r')stationary.reset();
-  else if(command=='p')stationary.stop();
-  else if(command=='g')deviceSettings.greenPreview=!deviceSettings.greenPreview;
-  else if(command=='z')zeroLean();
-  else if(command=='c'){if(deviceSettings.setLeanZero(0))app.model.clearImuMaxima();}
-  Serial.printf("LEGACY %c source=%s view=%u\n",command,app.model.testMode?"TEST":"REAL",unsigned(app.model.view(millis())));
-}
-
 void reportImu() {
   Serial.printf("IMU raw age=%lu ms, valid=%u, accel_g=%+.4f,%+.4f,%+.4f gyro_dps=%+.3f,%+.3f,%+.3f drops=%lu | %s\n",
     (unsigned long)(millis()-lastImuAt),lastImuOk,lastAx,lastAy,lastAz,lastGx,lastGy,lastGz,(unsigned long)imuSampleDrops,app.imu.quality);
@@ -452,40 +325,23 @@ void reportGps() {
 void updateDashboard() {
   const uint32_t now = millis();
   DashboardData data;
-  data.gpsOnline = receivedSentence && now - lastGpsSentence < 1500;
-  data.fix = data.gpsOnline && currentGpsFix && haveGga && now - lastGga < 1500 &&
-             gps.location.isValid() && gps.location.age() < 1500;
-  data.speedValid = data.fix && gps.speed.isValid() && gps.speed.age() < 1500;
-  if (data.speedValid) data.speed = gps.speed.kmph();
-  if (data.fix) { data.lat = gps.location.lat(); data.lon = gps.location.lng(); }
-  data.satellitesValid = data.gpsOnline && gps.satellites.isValid() && gps.satellites.age() < 1500;
-  if (data.satellitesValid) data.satellites = gps.satellites.value();
-  data.imuOk = lastImuOk && now - lastImuAt < 150;
-  data.ax = lastAx; data.ay = lastAy; data.az = lastAz;
-  data.recording = app.logger.active;
-  data.path = app.logger.path;
-  data.rows = app.logger.written; data.errors = app.logger.errors;
-  data.missed = missedGpsEpochs; data.checksumErrors = gps.failedChecksum();
-  data.epochMs = data.gpsOnline ? ggaEpochInterval : 0;
-  data.maxLogUs = app.logger.maxWriteUs;
+  const bool gpsOnline=receivedSentence&&now-lastGpsSentence<1500;
+  const bool fix=gpsOnline&&currentGpsFix&&haveGga&&now-lastGga<1500&&gps.location.isValid()&&gps.location.age()<1500;
+  data.speedValid=fix&&gps.speed.isValid()&&gps.speed.age()<1500;
+  if(data.speedValid)data.speed=gps.speed.kmph();
+  data.satellitesValid=gpsOnline&&gps.satellites.isValid()&&gps.satellites.age()<1500;
+  if(data.satellitesValid)data.satellites=gps.satellites.value();
   data.sdUsageValid = sdUsageValid && app.logger.ready.load();
   data.sdUsedPercent = sdUsedPercent;
   data.lapTimeMs = lapTimer.elapsedMs(now);
   data.lapNumber = lapTimer.lapNumber();
-  data.leanValid = data.imuOk && app.imu.valid;
+  data.leanValid = lastImuOk && now-lastImuAt<150 && app.imu.valid;
   if (data.leanValid)
     data.leanDegrees = deviceSettings.correctedLean(app.imu.rollDegrees());
   data.leanZeroDegrees = deviceSettings.leanZeroDegrees;
-  data.greenPreview = deviceSettings.greenPreview;
-  data.trackName = lapTimer.track().name;
   const auto& source=app.model.source();const auto& session=source.session;
-  data.lastLapMs = session.lastMs;
-  data.bestLapMs = session.best.lapMs;
-  data.trackIndex = selectedTrack;
-  data.currentSector = lapTimer.currentSector();
-  for (unsigned int i = 0; i < 3; ++i) data.sectorMs[i] = session.lastSectors[i];
   data.bestDeltaValid = session.deltaValid;
-  data.deltaToBestMs = static_cast<int32_t>(session.delta);
+  data.deltaToBestMs = session.delta;
   data.deltaStepMs=app.model.deltaStepMs();
   data.pressureUnits=app.model.config.pressure;
   data.testSource=app.model.testMode;data.pressureAlert=app.model.alertPresent();
@@ -493,13 +349,7 @@ void updateDashboard() {
   data.rearPressureValid=source.pressure[1].fresh(app.model.time(now),app.model.config.staleMs);
   data.frontPressureBar=source.pressure[0].bar;data.rearPressureBar=source.pressure[1].bar;
   if(app.model.testMode){data.lapNumber=session.laps?session.laps+1:0;data.lapTimeMs=session.laps?app.model.time(now)-session.lapAt:0;}
-  data.stationary = STATIONARY_TEST;
-  data.test = &stationary;
-  data.gx = lastGx; data.gy = lastGy; data.gz = lastGz;
-  data.hdopValid = gps.hdop.isValid() && gps.hdop.age() < 1500;
-  if (data.hdopValid) data.hdop = gps.hdop.hdop();
-  if(app.legacyView)dashboard.update(data);
-  else dashboard.updateControlled(data,app.model,app.imu);
+  dashboard.updateControlled(data,app.model,app.imu);
 }
 }  // namespace
 
@@ -509,12 +359,12 @@ void setup() {
   delay(500);
   Serial.println("\nESP32 lap timer: diagnostika GPS in MPU6500/9250/9255.");
   deviceSettings.begin();
-  Serial.printf("SETUP: nicla nagiba=%+.2f deg. USB: s=setup, z=nicla, c=ponastavi, g=preizkus, n=zaslon, t=test timinga.\n",
+  Serial.printf("SETUP: nicla nagiba=%+.2f deg. USB: help / status / imu zero.\n",
                 deviceSettings.leanZeroDegrees);
   Serial.printf("PROGA: %s (AiM legacy %s), cilj=%.6f,%.6f, polsirina=%.1f m.\n",
                 lapTimer.track().name, lapTimer.track().sourceName, lapTimer.track().latitude,
                 lapTimer.track().longitude, lapTimer.track().halfWidthM);
-  dashboard.begin(STATIONARY_TEST);
+  dashboard.begin();
   gpsSerial.setRxBufferSize(2048);
   gpsSerial.begin(9600, SERIAL_8N1, 19, 4);
   Serial.println("GPS: NEO TX -> GPIO19, NEO RX -> GPIO4.");
@@ -529,12 +379,14 @@ void setup() {
   Serial.println("USB: 115200. GPS nominalno 5 Hz, IMU nominalno 50 Hz. 'help' za terminal; 'verbose on' za diagnostiko.");
   // SD initialization may block; start measuring GPS intervals with fresh UART data.
   while (gpsSerial.available()) gpsSerial.read();
-  beginLog();
-  stationary.reset(false);
-  app.legacy=legacyCommand;app.zeroImu=zeroLean;app.changeTrack=selectTrack;
+  app.zeroImu=zeroLean;app.changeTrack=selectTrack;
+  app.renderStatus=[](){dashboard.reportRendering();};
   app.leanZero=[](){return deviceSettings.leanZeroDegrees;};
+#if LAP_TIMER_DEV
   app.selftest=[](){runTimingSelfTests(Serial);runControlSelfTests(Serial);};
   app.storageImuSelftest=[](){runStorageImuSelfTests(Serial);};
+  app.settingsSelftest=[](){runSettingsSelfTests(Serial);};
+#endif
   app.storageChanged=[](){
     sdReady=app.logger.ready.load();sdUsageValid=app.logger.formattedUsageValid;sdUsedPercent=app.logger.formattedUsedPercent;
     const double sectors[3]={0,0,0};lapTimer.loadReference(0,sectors);
@@ -546,7 +398,7 @@ void setup() {
   app.panelState=panelButtons.initial;app.panel.begin(app.panelState,millis());
   Serial.printf("PANEL: GREEN=32 RED=5 LEFT=34 RIGHT=35, contacts to GND, external 10k to 3.3V on 34/35, task=%s\n",
                 panelReady?"READY":"FAILED");
-  selectedTrack=app.model.config.track;lapTimer.selectTrack(*Tracks::Catalog[selectedTrack]);
+  lapTimer.selectTrack(*Tracks::Catalog[app.model.config.track]);
   imuSamples=xQueueCreate(64,sizeof(Imu::Sample));
   if(!imuSamples || xTaskCreatePinnedToCore(imuAcquisition,"imu-sample",3072,nullptr,2,nullptr,1)!=pdPASS)
     Serial.println("IMU TASK: FAILED");
@@ -561,17 +413,12 @@ void loop() {
     if (gps.encode(byte)) {
       receivedSentence = true;
       lastGpsSentence = millis();
-      // RMC speed is committed once per epoch; consume it once for statistics.
-      if (STATIONARY_TEST && gps.speed.isUpdated() && gps.speed.isValid()) {
-        const double speed = gps.speed.kmph();
-        if (!stationary.paused && !stationary.warming() && gps.location.isValid() && gps.location.age() < 400)
-          stationary.speed.add(speed);
-      }
+
     }
     trackGga(gpGgaTime, gpGgaQuality);
     trackGga(gnGgaTime, gnGgaQuality);
   }
-  sampleStationaryImu();
+  consumeImuSamples();
   if (lapTimer.poll(millis()) == Timing::Event::Interrupted) {
     app.onTiming(Timing::Event::Interrupted,lapTimer,millis());
     Serial.println("TIMING: izpad GPS, trenutni krog neveljaven.");
@@ -594,12 +441,9 @@ void loop() {
     reportGps();
     reportImu();
     reportTiming();
-    if (STATIONARY_TEST) reportStationary();
-    Serial.printf("SD: %s (preverjeno ob zagonu).\n", sdReady ? "branje OK" : "ni pripravljena");
-    Serial.printf("SD LOG: %s | %s | zapisano in prebrano=%lu | napake=%lu | najdaljsi zapis+branje+MPU=%.2f ms\n",
-                  loggingReady ? "AKTIVEN" : "USTAVLJEN", logPath,
-                  static_cast<unsigned long>(loggedRows), static_cast<unsigned long>(logErrors),
-                  maxLogUs / 1000.0);
+    Serial.printf("SD LOG: mounted=%u active=%u file=%s rows=%lu dropped=%lu errors=%lu max_us=%lu\n",
+      app.logger.ready.load(),app.logger.active,app.logger.path,(unsigned long)app.logger.written,
+      (unsigned long)app.logger.dropped,(unsigned long)app.logger.errors,(unsigned long)app.logger.maxWriteUs);
   }
   updateDashboard();
   delay(1);

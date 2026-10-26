@@ -1,37 +1,22 @@
 #pragma once
 
 #include <TFT_eSPI.h>
-#include "stationary.h"
 #include "track_catalog.h"
 #include "control_model.h"
 #include "imu_estimate.h"
 
 struct DashboardData {
-  bool gpsOnline = false, fix = false, speedValid = false;
-  bool satellitesValid = false, imuOk = false, recording = false;
-  uint32_t satellites = 0, rows = 0, errors = 0, missed = 0;
-  uint32_t epochMs = 0, checksumErrors = 0, maxLogUs = 0;
-  double speed = 0, lat = 0, lon = 0;
-  float ax = 0, ay = 0, az = 0;
-  const char* path = "";
-  bool stationary = false, hdopValid = false;
-  float gx = 0, gy = 0, gz = 0;
-  double hdop = 0;
-  const StationaryStats* test = nullptr;
+  bool speedValid=false,satellitesValid=false;
+  uint32_t satellites=0;double speed=0;
   uint32_t lapTimeMs = 0;
   uint32_t lapNumber = 0;
   bool bestDeltaValid = false;
-  int32_t deltaToBestMs = 0;  // Cumulative difference at the latest sector boundary.
+  double deltaToBestMs = 0;  // Cumulative difference at the latest sector boundary.
   bool frontPressureValid = false, rearPressureValid = false, leanValid = false;
   float frontPressureBar = 0, rearPressureBar = 0, leanDegrees = 0;
   bool batteryValid = false, sdUsageValid = false;
   uint8_t batteryPercent = 0, sdUsedPercent = 0;
-  bool greenPreview = false;
   float leanZeroDegrees = 0;
-  const char* trackName = "";
-  double lastLapMs = 0, bestLapMs = 0;
-  unsigned int trackIndex = 0, currentSector = 0;
-  double sectorMs[3] = {};
   bool testSource=false, pressureAlert=false;
   unsigned int pressureUnits=0;
   double deltaStepMs=200;
@@ -39,11 +24,9 @@ struct DashboardData {
   unsigned speedUnits=0;
 };
 
-enum class DashboardScreen : uint8_t { LapTimer, Diagnostics, Stationary, Settings, Tracks };
-
 class Dashboard {
  public:
-  void begin(bool stationaryMode = false) {
+  void begin() {
     tft.init();
     tft.setRotation(1);  // Landscape: 480 x 320.
     textCanvas.setColorDepth(1);
@@ -59,29 +42,16 @@ class Dashboard {
     tft.drawFastHLine(144, 208, 192, TFT_GREEN);
     Serial.println("TFT: zagon RACE.");
     delay(800);
-    selectScreen(DashboardScreen::LapTimer);
+    resetLapScreen();
     Serial.printf("TFT: demonstracijski zaslon casa kroga, %dx%d.\n", tft.width(), tft.height());
   }
-
-  // Future button handler can call nextScreen(); pins are not reserved yet.
-  void nextScreen() {
-    if (screen == DashboardScreen::Settings || screen == DashboardScreen::Tracks) {
-      selectScreen(DashboardScreen::LapTimer);
-      return;
-    }
-    selectScreen(static_cast<DashboardScreen>((static_cast<uint8_t>(screen) + 1) % 4));
-  }
-
-  void closeSettings() { selectScreen(DashboardScreen::LapTimer); }
-  void openTracks() { selectScreen(DashboardScreen::Tracks); }
-  bool tracksOpen() const { return screen == DashboardScreen::Tracks; }
 
   void reportRendering() {
     Serial.printf("TFT BUFFER: %s, RAM prost=%lu B, zadnji izris=%lu us, najdaljsi=%lu us, poslanih pik=%lu\n",
                   bufferedText ? "OK" : "IZKLOPLJEN", static_cast<unsigned long>(ESP.getFreeHeap()),
                   static_cast<unsigned long>(lastTextUs), static_cast<unsigned long>(maxTextUs),
                   static_cast<unsigned long>(textPixelsSent));
-    if (screen != DashboardScreen::LapTimer || !bufferedText) return;
+    if (!bufferedText) return;
     if(controlPage>=0 && minimalView(controlledView)){
       const uint16_t bottom=tft.readPixel(240,275),footer=tft.readPixel(240,300);
       Serial.printf("TFT QUICK CLEAN: %s expected=%04X bottom=%04X footer=%04X\n",
@@ -109,72 +79,10 @@ class Dashboard {
     }
   }
 
-  void toggleSettings() {
-    if (screen == DashboardScreen::Tracks) selectScreen(DashboardScreen::Settings);
-    else if (screen == DashboardScreen::Settings) closeSettings();
-    else selectScreen(DashboardScreen::Settings);
-  }
-
-  void selectScreen(DashboardScreen selected) {
-    controlPage=-1;
-    background=normalBackground;
-    screen = selected;
-    const char* name = screen == DashboardScreen::LapTimer ? "GLAVNI" :
-                       screen == DashboardScreen::Settings ? "SETUP" : screen == DashboardScreen::Tracks ? "DIRKALISCA" :
-                       screen == DashboardScreen::Stationary ? "MIRUJOCI TEST" : "DIAGNOSTIKA";
-    Serial.printf("ZASLON: %s\n", name);
-    region = 0;
-    memset(previous, 0, sizeof(previous));
-    memset(previousColors, 0, sizeof(previousColors));
-    lastLeanPixel = -1;
-    memset(textMask, 0, sizeof(textMask));
-    comparisonActive = -1;
-    stationaryFooterDrawn = false;
-    tft.fillScreen(background);
-    tft.setTextSize(1);
-    tft.setTextPadding(0);
-    if (screen == DashboardScreen::LapTimer) {
-      drawLapLayout();
-      return;
-    }
-    if (screen == DashboardScreen::Tracks) {
-      tft.setTextColor(foreground, background);
-      tft.drawString("SETUP > DIRKALISCA", 24, 16, 4);
-      tft.drawFastHLine(24, 52, 432, TFT_DARKGREY);
-      for (unsigned int i = 0; i < Tracks::Count; ++i) {
-        char label[64];
-        snprintf(label, sizeof(label), "%u  %s", i + 1, Tracks::Catalog[i]->name);
-        tft.drawString(label, 24, 70 + i * 28, 4);
-      }
-      tft.setTextColor(muted, background);
-      tft.drawString("Stevilka = izberi | S = nazaj v SETUP", 24, 268, 2);
-      tft.drawString("Q / ESC = glavni zaslon", 24, 292, 2);
-      return;
-    }
-    if (screen == DashboardScreen::Settings) {
-      tft.setTextColor(foreground, background);
-      tft.drawString("SETUP", 24, 16, 4);
-      tft.drawFastHLine(24, 52, 432, TFT_DARKGREY);
-      tft.drawString("K  Dirkalisca:", 24, 64, 2);
-      tft.drawString("Z  Nastavi niclo | C  Ponastavi niclo", 24, 88, 2);
-      tft.drawString("G  Zeleni preizkus", 24, 208, 2);
-      tft.setTextColor(muted, background);
-      tft.drawString("Ukazi prek USB; fizicni gumb sledi.", 24, 268, 2);
-      tft.drawString("N / Q / ESC  Nazaj | S  Zapri SETUP", 24, 292, 2);
-      return;
-    }
-    const bool stationaryMode = screen == DashboardScreen::Stationary;
-    tft.setTextColor(foreground, background);
-    tft.drawString(stationaryMode ? "MIRUJOCI TEST" : "LAP TIMER", 16, 8, 4);
-    tft.setTextColor(accent, background);
-    tft.drawRightString("GPS + IMU + SD", 464, 14, 2);
-    tft.drawFastHLine(16, 38, 448, TFT_DARKGREY);
-    tft.setTextColor(muted, background);
-    if (!stationaryMode) tft.drawString("km/h", 360, 72, 4);
-    tft.drawFastHLine(16, 282, 448, TFT_DARKGREY);
-    tft.drawString("Diagnostika | GPS 5 Hz | cakanje na podatke", 16, 294, 2);
-    Serial.printf("TFT: inicializacija poslana, driver=0x%04X, %dx%d. Priklop se ni preverjen.\n",
-                  TFT_DRIVER, tft.width(), tft.height());
+  void resetLapScreen() {
+    controlPage=-1;background=normalBackground;region=0;lastLeanPixel=-1;comparisonActive=-1;
+    memset(previous,0,sizeof(previous));memset(previousColors,0,sizeof(previousColors));memset(textMask,0,sizeof(textMask));
+    tft.fillScreen(background);tft.setTextSize(1);tft.setTextPadding(0);drawLapLayout();
   }
 
   // One small region per call. No full-screen redraw in the acquisition loop.
@@ -184,10 +92,10 @@ class Dashboard {
     setTheme(model.config.theme);
     const bool minimal=minimalView(view);
     // Selection/edit changes update buffered rows; they must not clear the screen.
-    const int key=int(view)+(model.testMode?10000:0)+(view==View::Settings?100+model.treeMenu+(model.editing?1000:0):0)+
+    const int key=int(view)+(model.testMode?10000:0)+(view==View::Settings?100+model.treeMenu+(model.editing?1000:0)+(model.numericActive?500:0):0)+
       (view==View::Settings&&model.specialPage?2000+model.specialPage*10:0)+model.config.theme*100000+model.config.pressure*1000000+model.config.speed*3000000+model.config.accel*6000000;
     if(controlPage!=key){
-      if(view==View::Race||view==View::Camera){selectScreen(DashboardScreen::LapTimer);}
+      if(view==View::Race||view==View::Camera){resetLapScreen();}
       else {
         background=view==View::Best?TFT_GREEN:view==View::Alarm?TFT_RED:normalBackground;
         tft.fillScreen(background);memset(textMask,0,sizeof(textMask));
@@ -222,18 +130,19 @@ class Dashboard {
       else if(region==1){std::snprintf(text,sizeof(text),"%s",wizard.instruction());color=wizard.stage==Imu::GuidedCalibration::Done||wizard.stage==Imu::GuidedCalibration::UprightOk||wizard.stage==Imu::GuidedCalibration::LeftOk||wizard.stage==Imu::GuidedCalibration::RightOk?TFT_GREEN:foreground;}
       else if(region==2){if(wizard.measuring())std::snprintf(text,sizeof(text),"MEASURING  %u %%",wizard.window.percent());font=4;}
       else if(region==3){std::snprintf(text,sizeof(text),"%s",wizard.detail);color=warning;}
-      else if(region==4){if(wizard.measuring())std::snprintf(text,sizeof(text),"STABILITY WINDOW: 2 SECONDS");color=muted;}
-      else{std::snprintf(text,sizeof(text),"CENTER + GREEN: MEASURE / BACK | RED OFF: EXIT");y=286;height=18;color=muted;}
+      else if(region==4){y=210;height=30;font=4;std::snprintf(text,sizeof(text),"%s BACK",model.specialCursor==0?">":" ");color=model.specialCursor==0?TFT_RED:foreground;}
+      else if(region==5){y=247;height=30;font=4;std::snprintf(text,sizeof(text),"%s %s",model.specialCursor==1?">":" ",wizard.measuring()?"MEASURING...":wizard.stage==Imu::GuidedCalibration::Done||wizard.stage==Imu::GuidedCalibration::Failed?"FINISH":"MEASURE");color=model.specialCursor==1?TFT_RED:foreground;}
+      else{std::snprintf(text,sizeof(text),"LEFT / RIGHT + GREEN: MOVE | CENTER: SELECT");y=286;height=18;color=muted;}
     }else if(view==View::Settings && model.specialPage==SdFiles){
       const unsigned first=model.fileCursor<5?0:model.fileCursor-4;
       if(region==0){std::snprintf(text,sizeof(text),model.filesLoading?"READING SD...":"SD FILES: %u",model.filePage.total);y=40;height=22;font=2;}
       else if(region<=5){
         const unsigned row=first+region-1;char label[128]="";
-        if(!model.filesLoading&&row<model.fileRowCount()){model.fileRowLabel(row,label,sizeof(label));std::snprintf(text,sizeof(text),"%s %.82s",row==model.fileCursor?">":" ",label);}
+        if((!model.filesLoading||row==0)&&row<model.fileRowCount()){model.fileRowLabel(row,label,sizeof(label));std::snprintf(text,sizeof(text),"%s %.82s",row==model.fileCursor?">":" ",label);}
         y=72+(region-1)*34;height=30;font=2;color=row==model.fileCursor?TFT_RED:foreground;
       }else if(region==6){
         y=246;height=28;font=2;color=muted;
-        if(!model.filesLoading){if(model.fileCursor<model.filePage.count)std::snprintf(text,sizeof(text),"%lu BYTES",(unsigned long)model.filePage.entries[model.fileCursor].bytes);
+        if(!model.filesLoading){if(model.fileCursor>0&&model.fileCursor<=model.filePage.count)std::snprintf(text,sizeof(text),"%lu BYTES",(unsigned long)model.filePage.entries[model.fileCursor-1].bytes);
         else std::snprintf(text,sizeof(text),"%s",model.filePage.message);}
       }else{y=286;height=18;font=2;color=muted;std::snprintf(text,sizeof(text),"LEFT / RIGHT + GREEN: MOVE | CENTER: SELECT");}
     }else if(view==View::Settings && model.specialPage==SdFormat){
@@ -254,13 +163,18 @@ class Dashboard {
           const unsigned row=first+region-1;
           if(row<=options){char label[80];model.choiceLabel(row,label,sizeof(label));std::snprintf(text,sizeof(text),"%s %s",row==model.editRow?">":" ",label);}
           y=82+(region-1)*34;height=30;font=4;
-          color=row==model.editRow?TFT_RED:row<options&&row==model.choiceIndex(config)?savedColor:foreground;
+          color=row==model.editRow?TFT_RED:row>0&&row-1==model.choiceIndex(config)?savedColor:foreground;
         }else if(region==6){
           y=255;height=22;font=2;color=model.error[0]?TFT_RED:muted;
           if(model.error[0])std::snprintf(text,sizeof(text),"%s",model.error);
           else if(model.menu==SdFormat){std::snprintf(text,sizeof(text),"ERASE ALL FILES DELETES THE ENTIRE CARD");color=TFT_RED;}
-          else {char label[64];model.choiceLabel(model.choiceIndex(config),label,sizeof(label));std::snprintf(text,sizeof(text),"SAVED: %s",label);}
+          else {char label[64];model.choiceLabel(model.choiceIndex(config)+1,label,sizeof(label));std::snprintf(text,sizeof(text),"SAVED: %s",label);}
         }else{y=288;height=18;font=2;color=muted;std::snprintf(text,sizeof(text),"CENTER + GREEN: SELECT | BACK: CANCEL");}
+      }else if(model.numericEditor()&&!model.numericActive){
+        if(region==1||region==2){const unsigned row=region-1;y=90+row*48;height=36;font=4;std::snprintf(text,sizeof(text),"%s %s",model.editRow==row?">":" ",row?"EDIT VALUE":"BACK");color=model.editRow==row?TFT_RED:foreground;}
+        else if(region==3){model.numericValue(text,sizeof(text));y=202;height=30;font=4;color=savedColor;}
+        else if(region==5){y=286;height=18;font=2;color=muted;std::snprintf(text,sizeof(text),"CENTER + GREEN: SELECT | RED OFF: CANCEL");}
+        else{y=246;height=26;font=2;std::snprintf(text,sizeof(text),"%s",model.error);color=TFT_RED;}
       }else{
         if(region==1){
           std::snprintf(text,sizeof(text),"%s",model.menu==FrontRange||model.menu==RearRange?(model.rangePart?"MAXIMUM":"MINIMUM"):"VALUE");
@@ -297,13 +211,6 @@ class Dashboard {
         std::snprintf(text,sizeof(text),"CENTER + GREEN: OPEN | RED OFF: EXIT");
       }
       for(char* c=text;*c;++c)if(*c>='a'&&*c<='z')*c-=('a'-'A');
-    }else if(view==View::Settings){
-      if(region==0){std::snprintf(text,sizeof(text),"%s %u/%u  %s",model.editing?"EDIT":"SELECT",model.menu+1,MenuCount,menuName(model.menu));font=2;height=16;y=60;}
-      else if(region==1){model.menuValue(model.menu,model.editing?model.draft:config,text,sizeof(text));y=94;}
-      else if(region==2){std::snprintf(text,sizeof(text),"Next: %s",menuName((model.menu+1)%MenuCount));font=2;height=16;y=142;}
-      else if(region==3){std::snprintf(text,sizeof(text),"%s",model.error[0]?model.error:imu.message[0]?imu.message:"LEFT/RIGHT select; GREEN edit/confirm");font=2;height=16;y=174;color=warning;}
-      else if(region==4){std::snprintf(text,sizeof(text),"SD %s | RECORD %s | UTC %+.2f h",data.sdUsageValid?"OK":"LOST",data.recording?"ON":"OFF",config.utcOffsetMinutes/60.0);font=2;height=16;y=214;}
-      else {std::snprintf(text,sizeof(text),"GREEN hold 2s / RED OFF = EXIT");font=2;height=16;y=284;}
     }else if(view==View::Alarm){
       const unsigned wheel=region%2;
       const auto& p=source.pressure[wheel];const bool active=source.alarms[wheel][0].active||source.alarms[wheel][1].active;
@@ -338,73 +245,13 @@ class Dashboard {
       drawBufferedText(text,x,y,width,height,font,size,color,previousColors[region],datum,degree);
       std::snprintf(previous[region],sizeof(previous[region]),"%s",text);previousColors[region]=color;
     }
-    const unsigned count=minimal?2:view==View::Settings?(model.specialPage?(model.specialPage==SdFiles?8:6):model.treeMenu&&(!model.editing||model.choiceCount())?8:6):3;
+    const unsigned count=minimal?2:view==View::Settings?(model.specialPage?(model.specialPage==SdFiles?8:model.specialPage==ImuWizard?7:6):model.treeMenu&&(!model.editing||model.choiceCount())?8:6):3;
     region=(region+1)%count;
   }
 
   void update(const DashboardData& data) {
-    if (millis() - lastDraw < 25) return;
-    lastDraw = millis();
-    if (screen == DashboardScreen::Tracks) { updateTracks(data); return; }
-    if (screen == DashboardScreen::LapTimer) { updateLap(data); return; }
-    if (screen == DashboardScreen::Settings) { updateSettings(data); return; }
-    if (screen == DashboardScreen::Stationary && data.test) { updateStationary(data); return; }
-    char text[96];
-    uint16_t color = foreground;
-    int font = 2, y = 112 + (region - 1) * 27;
-    switch (region) {
-      case 0:
-        if (data.speedValid) snprintf(text, sizeof(text), "%.1f", data.speed);
-        else snprintf(text, sizeof(text), "--.-");
-        font = 7; y = 52;
-        color = data.speedValid ? foreground : TFT_DARKGREY;
-        break;
-      case 1:
-        snprintf(text, sizeof(text), "GPS: %s | sat: %s%lu | korak: %lu ms",
-                 !data.gpsOnline ? "NI PODATKOV" : data.fix ? "POLOZAJ OK" : "ISCEM POLOZAJ",
-                 data.satellitesValid ? "" : "? ", static_cast<unsigned long>(data.satellites),
-                 static_cast<unsigned long>(data.epochMs));
-        color = data.fix ? TFT_GREEN : warning;
-        break;
-      case 2:
-        if (data.fix) snprintf(text, sizeof(text), "LAT %.6f   LON %.6f", data.lat, data.lon);
-        else snprintf(text, sizeof(text), "LAT --   LON --");
-        break;
-      case 3:
-        if (data.imuOk) snprintf(text, sizeof(text), "MPU [g]  X %+.3f  Y %+.3f  Z %+.3f", data.ax, data.ay, data.az);
-        else snprintf(text, sizeof(text), "MPU: ni svezih meritev");
-        color = data.imuOk ? foreground : warning;
-        break;
-      case 4:
-        snprintf(text, sizeof(text), "SD: %s | %s | vrstice: %lu",
-                 data.recording ? "ZAPISUJEM" : "USTAVLJEN", data.path,
-                 static_cast<unsigned long>(data.rows));
-        color = data.recording ? TFT_GREEN : warning;
-        break;
-      case 5:
-        snprintf(text, sizeof(text), "Napake SD: %lu  NMEA: %lu  Izpadi GPS: %lu",
-                 static_cast<unsigned long>(data.errors), static_cast<unsigned long>(data.checksumErrors),
-                 static_cast<unsigned long>(data.missed));
-        color = data.errors || data.checksumErrors || data.missed ? TFT_ORANGE : muted;
-        break;
-      case 6:
-        snprintf(text, sizeof(text), "SD najdlje: %.1f ms | delovanje: %lu s",
-                 data.maxLogUs / 1000.0, static_cast<unsigned long>(millis() / 1000));
-        color = muted;
-        break;
-      default:
-        snprintf(text, sizeof(text), "Diagnostika | GPS 5 Hz | cas kroga: --");
-        y = 294; color = accent;
-        break;
-    }
-    // Opaque text padding removes previous, longer values without clearing the screen.
-    if (strcmp(previous[region], text) != 0 || previousColors[region] != color) {
-      drawBufferedText(text, 16, y, region == 0 ? 330 : 448, region == 0 ? 48 : 16,
-                       font, 1, color, previousColors[region]);
-      snprintf(previous[region], sizeof(previous[region]), "%s", text);
-      previousColors[region] = color;
-    }
-    region = (region + 1) % 8;
+    if(millis()-lastDraw<25)return;
+    lastDraw=millis();updateLap(data);
   }
 
  private:
@@ -592,18 +439,14 @@ class Dashboard {
         drawBufferedText(text,16,211,448,52,4,2,color,previousColors[region],TC_DATUM);
       }
     } else {
-      if (data.greenPreview) {
-        snprintf(text, sizeof(text), "TEST");
-        color = TFT_GREEN;
-      } else if (data.bestDeltaValid) {
+      const unsigned active=Control::deltaLights(data.deltaToBestMs,data.deltaStepMs,data.bestDeltaValid);
+      if (data.bestDeltaValid) {
         snprintf(text, sizeof(text), "BEST %+.1f s", data.deltaToBestMs / 1000.0);
-        color = abs(data.deltaToBestMs)<=10 ? muted : data.deltaToBestMs < 0 ? TFT_GREEN : TFT_RED;
+        color = active ? (data.deltaToBestMs < 0 ? TFT_GREEN : TFT_RED) : muted;
       } else {
         snprintf(text, sizeof(text), "BEST --");
         color = TFT_DARKGREY;
       }
-      const unsigned int active = data.greenPreview ? 3 : data.bestDeltaValid && abs(data.deltaToBestMs)>10 ?
-          static_cast<unsigned int>(fmin(3.0, ceil(fabs(static_cast<double>(data.deltaToBestMs)) / data.deltaStepMs))) : 0;
       // Include segment count in the cache key: bar transitions need not change rounded text.
       char key[40];
       snprintf(key, sizeof(key), "%.30s:%u", text, active);
@@ -618,109 +461,6 @@ class Dashboard {
     region = (region + 1) % (data.cameraLayout?8:7);
   }
 
-  void updateSettings(const DashboardData& data) {
-    char text[80];
-    if (region == 0)
-      snprintf(text, sizeof(text), "Nicla: %+.2f", data.leanZeroDegrees);
-    else if (region == 1) {
-      if (data.leanValid) snprintf(text, sizeof(text), "Nagib: %+.1f", data.leanDegrees);
-      else snprintf(text, sizeof(text), "Trenutni nagib: --");
-    } else if (region == 2) snprintf(text, sizeof(text), "Zeleni preizkus: %s", data.greenPreview ? "VKLOPLJEN" : "IZKLOPLJEN");
-    else if (region == 3) snprintf(text, sizeof(text), "%s", data.trackName);
-    else if (region == 4) snprintf(text, sizeof(text), "Zadnji %.3f s | Best %.3f s", data.lastLapMs / 1000, data.bestLapMs / 1000);
-    else snprintf(text, sizeof(text), "S1 %.2f | S2 %.2f | S3 %.2f s", data.sectorMs[0] / 1000, data.sectorMs[1] / 1000, data.sectorMs[2] / 1000);
-    if (strcmp(previous[region], text) != 0) {
-      const int y = region < 2 ? 112 + region * 24 : region == 2 ? 232 : region == 3 ? 64 : region == 4 ? 160 : 184;
-      const int x = region == 3 ? 126 : 24;
-      drawBufferedText(text, x, y, region == 3 ? 300 : 432, 16, 2, 1,
-                       accent, previousColors[region], TL_DATUM,
-                       region == 0 || (region == 1 && data.leanValid));
-      previousColors[region] = accent;
-      snprintf(previous[region], sizeof(previous[region]), "%s", text);
-    }
-    region = (region + 1) % 6;
-  }
-
-  void updateTracks(const DashboardData& data) {
-    char text[96];
-    snprintf(text, sizeof(text), "Izbrano: %s | 3 sektorji", data.trackName);
-    if (strcmp(previous[0], text) == 0) return;
-    tft.setTextSize(1); tft.setTextPadding(432);
-    tft.setTextColor(TFT_GREEN, background);
-    tft.drawString(text, 24, 120, 2);
-    tft.setTextColor(muted, background);
-    tft.drawString("Sektorji: lastne tocke iz AiM trase", 24, 146, 2);
-    snprintf(previous[0], sizeof(previous[0]), "%s", text);
-  }
-
-  void updateStationary(const DashboardData& data) {
-    const StationaryStats& s = *data.test;
-    char text[96];
-    uint16_t color = foreground;
-    switch (region) {
-      case 0:
-        snprintf(text, sizeof(text), "GPS %s | SAT %lu | HDOP %s%.1f",
-                 data.fix ? "OK" : data.gpsOnline ? "ISCEM" : "NI PODATKOV",
-                 static_cast<unsigned long>(data.satellites), data.hdopValid ? "" : "? ", data.hdop);
-        color = data.fix ? TFT_GREEN : warning; break;
-      case 1:
-        if (data.speedValid)
-          snprintf(text, sizeof(text), "v %.2f | povp %.2f | max %.2f km/h", data.speed, s.speed.mean, s.speed.maximum);
-        else snprintf(text, sizeof(text), "Hitrost: -- | cakam veljavno GPS meritev");
-        break;
-      case 2:
-        if (s.east.count > 1)
-          snprintf(text, sizeof(text), "GPS odmik %.1f | max %.1f | sigma %.1f m", s.drift, s.maxDrift, s.spread());
-        else snprintf(text, sizeof(text), "GPS odmik: -- | cakam vzorce");
-        break;
-      case 3:
-        if (data.imuOk) snprintf(text, sizeof(text), "ACC g: %+.3f  %+.3f  %+.3f", data.ax, data.ay, data.az);
-        else snprintf(text, sizeof(text), "MPU: ni svezih meritev");
-        color = data.imuOk ? foreground : warning; break;
-      case 4:
-        if (s.accelNorm.count > 1)
-          snprintf(text, sizeof(text), "|a| %.4f g | sigma %.4f | odmik %+.1f%%", s.accelNorm.mean, s.accelNorm.sigma(), (s.accelNorm.mean - 1) * 100);
-        else snprintf(text, sizeof(text), "|a|: cakam statistiko (v mirovanju ~1 g)");
-        break;
-      case 5:
-        if (data.imuOk) snprintf(text, sizeof(text), "GYR d/s: %+.2f  %+.2f  %+.2f", data.gx, data.gy, data.gz);
-        else snprintf(text, sizeof(text), "GYR: --");
-        break;
-      case 6:
-        if (s.gyro[0].count)
-          snprintf(text, sizeof(text), "GYR povp: %+.3f  %+.3f  %+.3f d/s", s.gyro[0].mean, s.gyro[1].mean, s.gyro[2].mean);
-        else snprintf(text, sizeof(text), "GYR povp: cakam statistiko");
-        break;
-      case 7:
-        if (s.gyro[0].count > 1)
-          snprintf(text, sizeof(text), "GYR sigma: %.3f  %.3f  %.3f d/s", s.gyro[0].sigma(), s.gyro[1].sigma(), s.gyro[2].sigma());
-        else snprintf(text, sizeof(text), "GYR sigma: cakam statistiko");
-        break;
-      case 8:
-        snprintf(text, sizeof(text), "%s | %lu s | IMU %lu | GPS %lu",
-                 s.paused ? "USTAVLJEN" : s.warming() ? "UMIRJANJE 10 s" : "MERIM", static_cast<unsigned long>(s.seconds()),
-                 static_cast<unsigned long>(s.accelNorm.count), static_cast<unsigned long>(s.east.count));
-        color = s.warming() ? warning : accent; break;
-      default:
-        snprintf(text, sizeof(text), "Napake I2C %lu | NMEA %lu | izpadi GPS %lu",
-                 static_cast<unsigned long>(s.imuErrors), static_cast<unsigned long>(data.checksumErrors),
-                 static_cast<unsigned long>(data.missed));
-        color = s.imuErrors || data.checksumErrors || data.missed ? TFT_ORANGE : muted;
-        break;
-    }
-    if (strcmp(previous[region], text) != 0 || previousColors[region] != color) {
-      drawBufferedText(text, 16, 44 + region * 24, 448, 16, 2, 1, color, previousColors[region]);
-      snprintf(previous[region], sizeof(previous[region]), "%s", text);
-      previousColors[region] = color;
-    }
-    // Footer also replaces the startup message after the first update.
-    if (region == 0 && !stationaryFooterDrawn) {
-      tft.setTextColor(accent, background); tft.setTextPadding(448);
-      tft.drawString("SD IZKLOP | USB: r = nov test, p = ustavi", 16, 294, 2);
-      stationaryFooterDrawn = true;
-    }
-    region = (region + 1) % 10;
-  }
   uint16_t background = TFT_BLACK, normalBackground=TFT_BLACK;
   uint16_t foreground=TFT_WHITE,muted=TFT_LIGHTGREY,accent=TFT_CYAN;
   uint16_t warning=TFT_YELLOW;
@@ -729,7 +469,6 @@ class Dashboard {
   TFT_eSPI tft;
   TFT_eSprite textCanvas = TFT_eSprite(&tft);
   bool bufferedText = false;
-  bool stationaryFooterDrawn = false;
   uint8_t textMask[320][60] = {};
   uint16_t textRow[480] = {};
   uint32_t textPixelsSent = 0, lastTextUs = 0, maxTextUs = 0;
@@ -737,7 +476,6 @@ class Dashboard {
   uint16_t comparisonColor = TFT_DARKGREY;
   uint32_t lastDraw = 0;
   uint8_t region = 0;
-  DashboardScreen screen = DashboardScreen::LapTimer;
   int lastLeanPixel = -1;
   char previous[10][96] = {};
   uint16_t previousColors[10] = {};

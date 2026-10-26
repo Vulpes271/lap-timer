@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <cstdlib>
+#include "build_config.h"
 #include "control_storage.h"
 #include "terminal_reader.h"
 #include "analysis_logger.h"
@@ -13,7 +14,7 @@ class TerminalApp {
   Control::Model model;
   AnalysisLogger logger;
   Imu::Estimate imu;
-  bool legacyView=false,verbose=false,legacyImmediate=false;
+  bool verbose=false;
   uint32_t rawImuDrops=0;
   PanelNavigation panel;
   PanelMotion panelMotion;
@@ -22,22 +23,23 @@ class TerminalApp {
   void panelInput(PanelState state,uint32_t at){panelState=state;panelResult(panel.update(state,at,model,panelMotion),at);}
   void panelResult(PanelAction action,uint32_t at){
     if(action==PanelAction::None)return;
-    legacyView=false;
     if(action==PanelAction::Green)quick(at);
     Serial.printf("PANEL %s event_ms=%lu\n",action==PanelAction::Green?"GREEN SHORT":
       action==PanelAction::Entered?"SETTINGS ENTER":action==PanelAction::Exited?"SETTINGS EXIT":action==PanelAction::Menu?"MENU HOLD":action==PanelAction::Step?"MENU STEP":"HOLD IGNORED (entry not armed, moving, active lap or alarm)",(unsigned long)at);
   }
-  void (*legacy)(char)=nullptr;
+  void (*renderStatus)()=nullptr;
   void (*changeTrack)(unsigned)=nullptr;
   bool (*zeroImu)()=nullptr;
   float (*leanZero)()=nullptr;
+#if LAP_TIMER_DEV
   void (*selftest)()=nullptr;
+  void (*storageImuSelftest)()=nullptr;
+  void (*settingsSelftest)()=nullptr;
+#endif
   void (*calibrationChanged)()=nullptr;
   void (*storageChanged)()=nullptr;
-  void (*storageImuSelftest)()=nullptr;
   bool (*reloadReference)()=nullptr;
   void quick(uint32_t pressedAt) {
-    legacyView=false;
     model.input(Control::Input::Quick,pressedAt);
   }
   void begin(bool sdReady) {
@@ -52,10 +54,7 @@ class TerminalApp {
   void poll() {
     for(unsigned budget=0;budget<128 && Serial.available();++budget) {
       const char byte=Serial.read();
-      if(legacyImmediate && byte!='\r' && byte!='\n') {
-        if(byte=='!'){legacyImmediate=false;Serial.println("OK line mode; all commands require Enter");}
-        else if(legacy)legacy(byte);
-      } else reader.accept(byte,[this](char* line){command(line);},[](const char* error){Serial.printf("ERR %s\n",error);});
+      reader.accept(byte,[this](char* line){command(line);},[](const char* error){Serial.printf("ERR %s\n",error);});
     }
     panelResult(panel.tick(millis(),model,panelMotion),millis());
     model.poll(millis());
@@ -77,6 +76,7 @@ class TerminalApp {
       else if(action==Control::ImuWizard){
         if(!model.testMode&&!motionBlocked()&&model.settingsOn&&!model.settingsSuppressed)imu.guided.begin();
         else {model.specialPage=0;std::snprintf(model.error,sizeof(model.error),"STOP MOTOR / USE REAL MODE");}
+      }else if(action==Control::ImuWizardCancel){imu.guided.cancel();
       }else if(action==Control::ImuWizardNext){
         if(imu.guided.stage==Imu::GuidedCalibration::Done||imu.guided.stage==Imu::GuidedCalibration::Failed){imu.guided.cancel();model.specialPage=0;}
         else imu.guided.advance();
@@ -90,6 +90,7 @@ class TerminalApp {
       else std::snprintf(model.error,sizeof(model.error),"FORMAT FAILED - CHECK SD CARD");
     }
     if(imu.guided.active()){
+      if(lastGuidedStage!=unsigned(imu.guided.stage)){lastGuidedStage=unsigned(imu.guided.stage);if(!imu.guided.measuring())model.specialCursor=0;}
       if(model.specialPage!=Control::ImuWizard||!model.settingsOn||model.settingsSuppressed||model.unacknowledged()||motionBlocked()){
         imu.guided.cancel();if(model.specialPage==Control::ImuWizard)model.specialPage=0;
       }else if(imu.guided.stage==Imu::GuidedCalibration::SaveReady){
@@ -171,16 +172,17 @@ class TerminalApp {
     char* words[14]={};unsigned count=0;char* context=nullptr;
     for(char* token=strtok_r(line," \t",&context);token && count<14;token=strtok_r(nullptr," \t",&context))words[count++]=token;
     if(!count)return;
-    if(count==1 && std::strlen(words[0])==1 && legacy && std::strchr("tvknsprqbgzcNSQGZCTVPBRK123456789\x1b",words[0][0])){
-      legacy(words[0][0]);return;
-    }
     if(equal(words[0],"help") && count==1){help();return;}
     if(equal(words[0],"status") && count==1){status();return;}
+#if LAP_TIMER_DEV
     if(equal(words[0],"selftest") && count==1){if(selftest)selftest();return;}
+    if(equal(words[0],"selftest")&&count==2&&equal(words[1],"settings")){if(settingsSelftest)settingsSelftest();return;}
     if(equal(words[0],"selftest")&&count==2&&equal(words[1],"storage-imu")){if(storageImuSelftest)storageImuSelftest();return;}
-    if(equal(words[0],"legacy") && count==2 && equal(words[1],"on")){legacyImmediate=true;Serial.println("OK immediate legacy mode; ! returns line mode");return;}
+#endif
+    if(equal(words[0],"display")&&count==2&&equal(words[1],"status")){if(renderStatus)renderStatus();return;}
     if(equal(words[0],"verbose") && count==2 && onOff(words[1],verbose)){Serial.printf("OK verbose=%u\n",verbose);return;}
     bool ok=false;error[0]=0;
+#if LAP_TIMER_DEV
     if(equal(words[0],"key") && count==2){
       if(equal(words[1],"quick")||equal(words[1],"green")){quick(millis());ok=true;}
       else if(equal(words[1],"left")||equal(words[1],"right")){model.tap(equal(words[1],"right"),millis());ok=true;}
@@ -204,18 +206,25 @@ class TerminalApp {
         const char* choices[]={"left","center","right"};const Control::Input events[]={Control::Input::Left,Control::Input::Center,Control::Input::Right};
         for(unsigned i=0;i<3;++i)if(equal(words[2],choices[i])){model.input(events[i],millis());ok=true;}
       }
-    }else if(equal(words[0],"screen") && count==2){
+    }else
+#endif
+    if(equal(words[0],"screen") && count==2){
       if(equal(words[1],"race")||equal(words[1],"camera")){model.base=equal(words[1],"camera")?Control::Base::Camera:Control::Base::Race;model.quickActive=false;ok=true;}
     }else if(equal(words[0],"set")){ok=set(words,count);}
     else if(equal(words[0],"max")&&count==2&&equal(words[1],"reset")){model.source().maxima=Control::Maxima();ok=true;}
     else if(equal(words[0],"settings") && count==2){
       if(equal(words[1],"show")){status();return;}
       if(equal(words[1],"reload")){Control::Config config;if(Control::loadConfig(config)){ok=model.commit(config);}}
-    }else if(equal(words[0],"test")){ok=test(words,count);}
+    }
+#if LAP_TIMER_DEV
+    else if(equal(words[0],"test")){ok=test(words,count);}
+#endif
     else if(equal(words[0],"sd") && count==2){
       if(equal(words[1],"status")){status();return;}
       if(equal(words[1],"readback")){logger.diagnostic();ok=logger.ready;}
+#if LAP_TIMER_DEV
       if(equal(words[1],"selftest")){logger.testReference();ok=logger.ready;}
+#endif
       if(equal(words[1],"inspect")){logger.inspect();ok=logger.ready;}
       if(equal(words[1],"files")){model.fileFirst=0;ok=requestFiles();}
       if(equal(words[1],"format")){Serial.println("SD FORMAT: deletes every file; stop logging, then explicitly type sd format ERASE-ALL-FILES");ok=true;}
@@ -223,7 +232,7 @@ class TerminalApp {
     else if(equal(words[0],"sd")&&count==3&&equal(words[1],"files")){double first=0;if(number(words[2],first)&&first>=0&&first<=1000000&&std::floor(first)==first){model.fileFirst=unsigned(first);ok=requestFiles();}}
     else if(equal(words[0],"reference") && count==2 && equal(words[1],"reload")){ok=reloadReference&&reloadReference();}
     else if(equal(words[0],"imu")){ok=imuCommand(words,count);}
-    if(ok){legacyView=false;model.poll(millis());if(model.dirty)apply();recordState();Serial.printf("OK source=%s view=%u settings=%u editing=%u menu=%u\n",model.testMode?"TEST":"REAL",unsigned(model.view(millis())),model.settingsOn,model.editing,model.menu);}
+    if(ok){model.poll(millis());if(model.dirty)apply();recordState();Serial.printf("OK source=%s view=%u settings=%u editing=%u menu=%u\n",model.testMode?"TEST":"REAL",unsigned(model.view(millis())),model.settingsOn,model.editing,model.menu);}
     else Serial.printf("ERR %s\n",error[0]?error:model.error[0]?model.error:"unknown command, invalid argument or TEST OFF; enter help");
   }
   void startLog() {
@@ -247,7 +256,7 @@ class TerminalApp {
     logger.event(model.testMode,model.time(millis()),"QUICK_SETTINGS",metadata);
   }
  private:
-  uint32_t lastFormatGeneration=0;
+  uint32_t lastFormatGeneration=0;unsigned lastGuidedStage=0;
   bool motionBlocked()const{return panelMotion.lapRunning||(panelMotion.speedFresh&&std::isfinite(panelMotion.speedKmh)&&panelMotion.speedKmh>5);}
   bool requestFiles(){
     ++model.fileRequest;model.fileCursor=0;model.filesLoading=true;
@@ -324,6 +333,7 @@ class TerminalApp {
     else return false;
     return model.commit(c);
   }
+#if LAP_TIMER_DEV
   bool test(char** w,unsigned n){
     if(n==2 && (equal(w[1],"on")||equal(w[1],"off"))){
       model.setTest(equal(w[1],"on"));logger.fault=0;if(model.config.logging){logger.stop();startLog();}return true;
@@ -354,13 +364,14 @@ class TerminalApp {
     }
     return false;
   }
+#endif
   bool imuCommand(char** w,unsigned n){
     if(n==2 && equal(w[1],"status")){Serial.printf("IMU %s: %s\nGUIDED stage=%u progress=%u drift=%.2f gyro_noise=%.3f accel_noise=%.4f %s\n",imu.quality,imu.message,unsigned(imu.guided.stage),imu.guided.window.percent(),imu.guided.window.driftDegrees,imu.guided.window.gyroNoise,imu.guided.window.accelNoise,imu.guided.detail);return true;}
     if(n==2 && equal(w[1],"upright")){imu.startCapture(1);return true;}
     if(n==2 && equal(w[1],"left")){imu.startCapture(2);return true;}
     if(n==2 && equal(w[1],"calibrate")){
       if(model.testMode||motionBlocked())return false;
-      model.openTree(millis());model.menuDepth=1;model.menuCategory=unsigned(Control::Category::Calibration);model.menu=Control::ImuWizard;model.menuRow=0;model.specialPage=Control::ImuWizard;imu.guided.begin();return true;
+      model.openTree(millis());model.menuDepth=1;model.menuCategory=unsigned(Control::Category::Calibration);model.menu=Control::ImuWizard;model.menuRow=1;model.specialPage=Control::ImuWizard;model.specialCursor=0;imu.guided.begin();return true;
     }
     if(n==2 && equal(w[1],"next")){if(!imu.guided.active())return false;imu.guided.advance();return true;}
     if(n==2 && equal(w[1],"cancel")){imu.guided.cancel();if(model.specialPage==Control::ImuWizard)model.specialPage=0;return true;}
@@ -371,25 +382,24 @@ class TerminalApp {
     return false;
   }
   static void help(){Serial.println(
-    "TERMINAL v1 - every command ends with Enter, USB 115200\n"
-    "help | status | selftest | selftest storage-imu (only new SD/IMU tests) | verbose on/off | legacy on (! exits)\n"
-    "key green/quick/left/right | switch settings on/off | switch direction left/center/right (direct diagnostic)\n"
-    "button red on/off | button green down/up | button direction left/center/right (guarded panel)\n"
-    "screen race/camera | settings show/reload\n"
-    "set base race/camera | set speed kmh/mph | set pressure bar/psi/kpa\n"
-    "set temperature c/f | set accel g/ms2 | set track 1 | set hold 5..15\n"
+    "TERMINAL - each command ends with Enter; USB 115200\n"
+    "help | status | display status | verbose on/off | screen race/camera\n"
+    "settings show/reload | set base race/camera | set background black/white/blue\n"
     "set quick1/quick2/quick3 last_lap/rear_pressure/front_pressure/best_lap/max_angle/max_speed/max_acceleration/max_deceleration\n"
-    "set background black/white/blue | max reset (current source/session peaks)\n"
-    "set delta 0.1/0.2/0.5/1.0 | set front_range MIN MAX | set rear_range MIN MAX (bar)\n"
-    "set front_id ID | set rear_id ID (none clears) | set alarm on/off\n"
-    "set hysteresis BAR | set confirm_ms 0..10000 | set stale_ms 1000..600000\n"
-    "set utc_offset MINUTES (-720..840) | set logging on/off\n"
-    "test on/off/reset | test pressure front/rear BAR | test sensor front/rear lost\n"
-    "test lap MILLISECONDS | test sector 1/2 CUMULATIVE_MS | test tick MILLISECONDS\n"
-    "test motion ANGLE_DEG SPEED_KMH ACCEL_G (isolated simulated maxima)\n"
-    "test sd fail/slow/normal | sd status/readback/selftest/inspect | sd files [FIRST_INDEX] | sd format | reference reload\n"
-    "imu calibrate | imu next | imu cancel (guided upright, left, right)\n"
-    "imu upright | imu left | imu forward x+/x-/y+/y-/z+/z- | imu mount x+ y+ z+ | imu zero/status\n"
-    "Legacy one-letter commands t,v,n,s,q,b,k,g,z,c,r,p also require Enter.\n"
-    "TEST is isolated; TPMS BLE is not connected; IMU dynamic estimate is EXPERIMENTAL.");}
+    "set speed kmh/mph | set pressure bar/psi/kpa | set temperature c/f | set accel g/ms2\n"
+    "set delta 0.1/0.2/0.5/1.0 | set hold 5..15 | set track 1 | set utc_offset MINUTES\n"
+    "set front_range/rear_range MIN MAX (bar) | set front_id/rear_id ID (none clears)\n"
+    "set alarm on/off | set hysteresis BAR | set confirm_ms MS | set stale_ms MS\n"
+    "set logging on/off | max reset | reference reload\n"
+    "sd status/readback/inspect | sd files [FIRST_INDEX] | sd format (confirmation instructions)\n"
+    "imu calibrate | imu next | imu cancel | imu zero/status\n"
+    "imu upright | imu left | imu forward x+/x-/y+/y-/z+/z- | imu mount x+ y+ z+\n"
+#if LAP_TIMER_DEV
+    "DEV ONLY: selftest | selftest settings | selftest storage-imu | test on/off/reset | test pressure front/rear BAR\n"
+    "test sensor front/rear lost | test motion ANGLE SPEED ACCEL | test lap MS | test sector 1/2 MS | test tick MS\n"
+    "test sd fail/slow/normal | sd selftest | key green/quick/left/right\n"
+    "button red on/off | button green down/up | button direction left/center/right\n"
+    "switch settings on/off | switch direction left/center/right (diagnostic override)\n"
+#endif
+    "BLE TPMS reception is not implemented. Dynamic IMU estimate is EXPERIMENTAL.");}
 };

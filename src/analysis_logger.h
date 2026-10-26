@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <atomic>
+#include "build_config.h"
 #include <algorithm>
 #include "sd_card.h"
 #include <freertos/FreeRTOS.h>
@@ -55,7 +56,9 @@ class AnalysisLogger {
     xSemaphoreGive(mutex);if(found)reference=best.reference;return found;
   }
   void diagnostic() {Job j;j.kind=Diagnostic;submit(j);}
+#if LAP_TIMER_DEV
   void testReference() {Job j;j.kind=ReferenceTest;j.test=true;submit(j);}
+#endif
   void inspect(){Job j;j.kind=Inspect;submit(j);}
   bool listFiles(unsigned first,uint32_t generation){Job j;j.kind=ListFiles;j.day=first;j.geometry=generation;return submit(j);}
   bool getFilePage(Sd::Page& target){
@@ -133,6 +136,7 @@ class AnalysisLogger {
     if(in)in.close();
     Sd::card().remove(name);if(!ok)++errors;Serial.printf("SD READBACK: %s\n",ok?"PASS":"FAIL");
   }
+#if LAP_TIMER_DEV
   void referenceTest(){
     Job job;job.kind=Best;job.test=true;job.day=20991231;job.geometry=0x54455354;
     job.reference.lapMs=123456;for(auto& value:job.reference.sectors)value=41152;
@@ -147,6 +151,7 @@ class AnalysisLogger {
     saveBest(job);
     Serial.printf("SD REFERENCE TEST: %s load=%u sequence=%u corrupt_slot_fallback=%u (TEST files only)\n",loaded&&newer&&recovered?"PASS":"FAIL",loaded,newer,recovered);
   }
+#endif
   void inspectFile(){
     if(file)file.flush();
     File input=Sd::card().open(path,FILE_READ);
@@ -213,7 +218,9 @@ class AnalysisLogger {
         else if(job.kind==Stop)close();
         else if(job.kind==Best)saveBest(job);
         else if(job.kind==Diagnostic)readback();
+#if LAP_TIMER_DEV
         else if(job.kind==ReferenceTest)referenceTest();
+#endif
         else if(job.kind==Inspect)inspectFile();
         else if(job.kind==ListFiles)list(job);
         else if(job.kind==Format)format();

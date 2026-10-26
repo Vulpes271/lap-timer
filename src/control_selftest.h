@@ -6,6 +6,7 @@
 #include "imu_estimate.h"
 #include "quick_button.h"
 #include "panel_selftest.h"
+#include "settings_selftest.h"
 
 inline bool runControlSelfTests(Stream& out){
   using namespace Control;
@@ -27,14 +28,7 @@ inline bool runControlSelfTests(Stream& out){
   check(m.view(6000)==View::Rear,"quick extends five second deadline");
   check(m.view(9000)==View::Race,"quick timeout returns base");
   m.base=Base::Camera;m.input(Input::Quick,10000);check(m.view(15000)==View::Camera,"quick returns prior CAMERA base");
-  m=Model();m.input(Input::SettingsOn,0);m.input(Input::Right,0);const auto menu=m.menu;
-  m.input(Input::Right,1);check(m.menu==menu,"held right does not repeat");
-  m.input(Input::Left,2);check(m.menu==menu,"left needs return to CENTER");
-  m.input(Input::Center,3);m.input(Input::Left,4);check(m.menu==0,"center rearms direction");
-  m.input(Input::Quick,5);m.tap(true,6);check(m.editing && m.draft.base==1 && m.config.base==0,"editing is unconfirmed draft");
-  m.input(Input::SettingsOff,7);check(!m.editing && m.config.base==0,"settings off discards unconfirmed edit");
-  m.input(Input::SettingsOn,8);m.input(Input::Quick,9);m.tap(true,10);m.input(Input::Quick,11);
-  check(m.config.base==1 && m.dirty,"QUICK confirms setting");
+  check(runSettingsSelfTests(out),"current BACK/QUICK INFO/LAP DELTA settings checks");
   Config c;c.frontMin=2;c.frontMax=3;c.rearMin=2;c.rearMax=3;
   std::strcpy(c.frontId,"SIM-F");std::strcpy(c.rearId,"SIM-R");c.pressureAlarm=true;c.confirmMs=1000;
   check(validConfig(c),"explicit range and identities enable alarms");
@@ -74,7 +68,7 @@ inline bool runControlSelfTests(Stream& out){
   m.input(Input::SettingsOff,7000);check(m.view(7000)==View::Race,"covered BEST expires from original event");
   m.simulated.session.sector(1,29000);check(m.simulated.session.deltaValid && m.simulated.session.delta<0,"sector cumulative delta uses full best lap");
   m.setTest(false);check(!m.simulated.session.best.lapMs && !m.quickActive && m.real.session.best.lapMs==70000,"TEST OFF clears synthetic values and restores real source");
-  check(m.segments(10)==0 && m.segments(-11)==1 && m.segments(401)==3,"neutral band and started delta segments");
+  m.real.session.deltaValid=true;check(m.segments(199)==0 && m.segments(-200)==1 && m.segments(600)==3,"full-step delta segments with symmetric floor thresholds");
   check(localDate(2024,2,29,86399000,120)==20240301 && localDate(2026,1,1,0,-60)==20251231,"local reference day handles leap and year rollover");
   check(localDate(2025,2,29,0,0)==0 && localDate(0,1,1,0,0)==0,"invalid GNSS calendar rejected");
   m.day=20261024;m.geometry=123;m.real.session.best.lapMs=60000;
@@ -116,11 +110,6 @@ inline bool runControlSelfTests(Stream& out){
   m.input(Input::Quick,100);check(m.view(100)==View::BestLap,"first QUICK uses selected best lap page");
   m.input(Input::Quick,200);m.input(Input::Quick,300);check(m.view(300)==View::MaxDeceleration,"third QUICK uses selected deceleration page");
   m.input(Input::Quick,400);check(m.view(400)==View::BestLap,"configured QUICK pages wrap after three presses");
-  m=Model();m.input(Input::SettingsOn,0);m.menu=Quick1;m.input(Input::Quick,1);m.tap(true,2);
-  check(m.editing&&m.draft.quickSlots[0]==1&&m.config.quickSlots[0]==0,"quick mapping edit stays unconfirmed");
-  m.input(Input::SettingsOff,3);check(m.config.quickSlots[0]==0,"settings OFF discards shortcut draft");
-  m.input(Input::SettingsOn,4);m.menu=Background;m.input(Input::Quick,5);m.tap(true,6);m.input(Input::Quick,7);
-  check(m.config.theme==1&&!m.editing,"background selection confirms through common menu events");
   auto invalidQuick=m.config;invalidQuick.quickSlots[2]=8;check(!validConfig(invalidQuick),"unknown quick page rejected");
   invalidQuick=m.config;invalidQuick.theme=3;check(!validConfig(invalidQuick),"unknown background rejected");
   m=Model();m.observeSpeed(false,180,true);m.observeSpeed(false,120,true);m.observeSpeed(false,999,false);

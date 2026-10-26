@@ -1,339 +1,218 @@
-# ESP32 lap timer — terminal-v1
+# ESP32 lap timer
 
-Upravljanje: **zeleni gumb** (trenutna tipka GPIO32), **rdeči gumb**
-(zaskočni kontakt GPIO5) in **stikalo levo/desno** (GPIO34/GPIO35).
-Zeleni je glavni gumb za prikaze, izbiro in potrjevanje. Terminal ostaja na voljo.
-BLE sprejem TPMS še ni implementiran; pripravljena sta podatkovni vmesnik in simulator.
+Merilnik krogov z GPS NEO-6, IMU MPU6500/9250, zaslonom SPI 480 × 320,
+kartico SD in fizičnimi gumbi. Običajna različica vsebuje vse funkcije merjenja,
+prikaza, nastavitev in beleženja. Simulator in samodejni testi so v ločeni
+razvojni različici, ki je privzeto izklopljena.
 
-## Pregled trenutne implementacije
+## Implementirane funkcije
 
-| Področje | Kaj je implementirano |
+| Področje | Trenutno stanje |
 | --- | --- |
-| GPS | NEO-6 prek UART, nastavitev 5 Hz, položaj, hitrost, smer, UTC, sateliti in zaznavanje izgube signala. |
-| Merjenje krogov | Prehod startno-ciljne črte v določeni smeri, časovna interpolacija med meritvama GPS, štetje krogov, trije sektorji in primerjava z najboljšim krogom. |
-| Dirkališča | Katalog in izbira proge v nastavitvah; trenutno Pomposa Long. Izvor trase in projektni sektorski meji sta opisana spodaj. |
-| Zasloni | RACE in CAMERA s časom, tlaki, statusom GPS/SD, nagibnim barom in tremi primerjalnimi okvirji na vsaki strani; CAMERA doda hitrost. Ločeni veliki prikazi zadnjega/najboljšega kroga, tlakov in maksimumov. |
-| Upravljanje | Zeleni in rdeči gumb ter stikalo levo/desno, zaščiten vstop v nastavitve, večstopenjski meniji, ločeni izbori, ponavljanje številčnih vrednosti ob držanju in nastavljivi trije hitri prikazi. |
-| Nastavitve | DISPLAY, CALIBRATION, UNITS, TRACK, TPMS in STORAGE; tri ozadja, enote, meje tlakov, čas prikaza kroga in nastavitve beleženja. Potrjene nastavitve se ohranijo v NVS. |
-| IMU | Neodvisen zajem pri nominalno 50 Hz, surovi nagib pred kalibracijo, vodena kalibracija pokonci/levo/desno za poljubno zasukano montažo, odmik giroskopa in ločena ničla nagiba. Dinamična ocena ostaja eksperimentalna. |
-| SD | CSV za REAL in TEST v ločenih imenikih, zapisovalna naloga z vrsto in števci napak, shranjevanje dnevne reference BEST, seznam datotek z velikostmi ter formatiranje FAT32 z izrecno potrditvijo. |
-| Tlaki | Vmesnik za oba senzorja, izolirani testni podatki, alarmi LOW/HIGH, histereza, potrditev in zaznavanje zastarelih meritev. Dejanski senzorji BLE še niso povezani. |
-| Terminal in diagnostika | Ukazi za prikaze, nastavitve, simulacijo gumbov/senzorjev in diagnostiko GPS/IMU/SD; ločeni testi timinga, krmiljenja ter novih SD/IMU funkcij. |
+| GPS | UART, nastavitev 5 Hz, položaj, hitrost, smer, UTC, sateliti in diagnostika izgube signala. |
+| Timing | Prehod črte v določeni smeri, interpolacija časa med meritvama GPS, štetje krogov in trije sektorji. Trenutna proga je Pomposa Long. |
+| BEST | Referenca celotnega najboljšega kroga in njegovih sektorjev za isti lokalni dan ter geometrijo proge. Na SD sta dve preverjeni reži za obnovitev. |
+| RACE/CAMERA | Velik čas, tlaka R levo/F desno, GPS/BAT/SD status, številka kroga, spodnji bar nagiba ter trije primerjalni okvirji na vsaki strani. CAMERA doda hitrost in pred kalibracijo pokaže surovi nagib z oznako RAW. |
+| QUICK INFO | Tri nastavljive hitre strani: zadnji/najboljši krog, oba tlaka, največji nagib, hitrost, pospešek ali pojemek. Povratek po petih sekundah. |
+| SETTINGS | Hierarhični meniji z BACK na prvi, ob vstopu izbrani vrstici; ločeni izbori, tri ozadja, enote, kalibracija, proga, tlaki in SD. Potrjene nastavitve se ohranijo v NVS v4. |
+| IMU | Neodvisen zajem pri nominalno 50 Hz z dejanskim časovnim korakom, vodena kalibracija pokonci/levo/desno, odmik giroskopa in ločena ničla nagiba. Dinamična ocena ostaja eksperimentalna. |
+| SD | CSV v ločenih imenikih REAL/TEST, zapisovalna naloga z vrsto, redno praznjenje, števci napak, seznam datotek z velikostmi in formatiranje FAT32 z izrecno potrditvijo. |
+| Tlaki | Podatkovni vmesnik obeh senzorjev, alarmi LOW/HIGH, histereza, potrjevanje svežih meritev in zaznavanje izgube senzorja. Sprejem BLE še ni implementiran. |
+| Terminal | Status, nastavitve in diagnostika GPS/IMU/SD/zaslona; v razvojnem buildu še simulator in testi. |
 
-**Stanje preverjanja:** zadnje spremembe SD/IMU so prevedene za ESP32 in imajo
-35 uspešnih ciljnih preverjanj na računalniku. Na ploščico še niso naložene,
-ker pri zadnjem preverjanju USB ni bilo zaznanega COM priključka. Spodaj navedeni
-strojni rezultati veljajo za predhodno naloženo različico. Dejanskega formatiranja
-kartice in nove kalibracije na motorju še nismo izvedli.
+Osnovni prikazi in zajem se nadaljujejo tudi ob menjavi zaslona. Izris besedila
+poteka prek medpomnilnika; prenesejo se spremenjeni deli, bar nagiba se dopolnjuje
+oziroma krajša. Vtis utripanja zahteva tudi vizualni preizkus zaslona.
 
-Interpolacija trenutno uporablja meritve GPS; vključitev pospeška IMU v izračun
-trenutka prečkanja črte še ni implementirana. Prav tako niso implementirani
-sprejem senzorjev BLE TPMS in merjenje baterije; zanju je na zaslonu predviden prostor.
+## Gumbi in povezave
 
-Navodila, vsi ukazi in rocni preizkusi:
-**[docs/codex_terminal_test.md](docs/codex_terminal_test.md)**.
-Izvirni nacrt iz pulla: [CODEX_TERMINAL_TEST_PLAN.md](docs/CODEX_TERMINAL_TEST_PLAN.md).
-Zgodovinski opisi strojnih testov: [HARDWARE_BASELINE.md](docs/HARDWARE_BASELINE.md).
-
-## Zagon in preverjanje
-
-V PowerShell terminalu projekta:
-
-```powershell
-.\.venv\Scripts\platformio.exe run
-.\.venv\Scripts\platformio.exe run --target upload --upload-port COM4
-.\.venv\Scripts\platformio.exe device monitor --port COM4 --baud 115200 --filter send_on_enter --echo
-```
-
-Vsak ukaz potrdi z Enter. Ctrl+C zapre monitor. Monitor mora biti zaprt za
-nalaganje ali avtomatski test. Iz osnovnega terminala:
-
-```text
-help
-status
-selftest
-screen camera
-screen race
-switch settings on
-key right
-key quick
-key right
-key quick
-switch settings off
-```
-
-Samodejni integracijski preizkus na ploscici (obnovi uporabnikove nastavitve):
-
-```powershell
-.\.venv\Scripts\python.exe tools/test_terminal.py --port COM4
-```
-
-Predhodna različica z ločenimi izbori in smerjo + zelenim je bila naložena na COM4:
-**20/20 testov timinga in 139/139 testov krmiljenja** je uspešnih. Na ploščici je
-izmerjen dvig tlaka za **2,00 bar v 4,08 s**, brez shranjevanja preizkusne spremembe.
-Terminalski preizkus je preveril 19 scenarijev do vključno izbora barv in ponavljanja
-tlaka (+2,20 bar v 4,62 s). Nato je GPS zaščita blokirala ponovni vstop. Preostala
-tri preverjanja BACK/ponovnega odklepanja so uspešno izvedena ločeno. Zaščita med
-testi ni bila izklopljena; celoten neprekinjen terminalski tek zato ni označen kot PASS.
-CAMERA na nekalibrirani ploščici vrača veljaven RAW nagib.
-Nalaganje in zadnji testi so bili izvedeni brez SD kartice. Kontakti se pri terminalskem testu
-simulirajo; fizične pritiske in ožičenje mora potrditi še ročni preizkus.
-Starejši terminalski preizkus je preveril 28 scenarijev ter SD readback/reference.
-Med menjavo zaslonov je preverjeni del CSV vseboval IMU intervale 19,454..20,499 ms.
-
-## Izvedeno
-
-Hitri prikazi imajo samo naslov in veliko vrednost: LAP s stevilko kroga in
-casom oziroma REAR/FRONT PRESSURE z vrednostjo in enoto. V SETUP so GREEN 1/2/3
-z osmimi izbirami (zadnji/najboljsi krog, oba tlaka, najvecji nagib, hitrost,
-pospesek in pojemek) ter BACKGROUND: crno, belo ali temno modro. Enote ostanejo
-nastavljive prek SPEED/PRESSURE/TEMPERATURE/ACCEL UNIT. Nastavitve se shranijo
-v NVS v4, stari zapis v3 se samodejno prenese. Maksimumi so za trenutno sejo;
-brez veljavnih meritev je `--`. Podrobnosti in ukazi so v terminalskem vodicu.
-
-- Skupni dogodki QUICK, SETTINGS ON/OFF in LEFT/CENTER/RIGHT, odpravljanje odboja
-  kontaktov in nadzorovano ponavljanje številčnih vrednosti; potrjene in validirane
-  nastavitve so v verzioniranem NVS.
-- RACE, CAMERA, LAST LAP, FRONT/REAR PRESSURE, petsekundni hitri pregledi,
-  LAP HOLD 5..15 s in zelen BEST. Menjava zaslona ne ustavi merjenja ali SD.
-- Trije sektorji Pomposa Long z GPS UTC interpolacijo. Dnevni BEST je celoten
-  krog in njegovi sektorji, izoliran po datumu in geometriji; SD hrani dve
-  preverjeni rezi z moznostjo obnovitve. Brez veljavnega GNSS datuma je SESSION.
-- Vmesnik TPMS in izoliran simulator. LOW/HIGH alarm prikaze dejanski tlak,
-  zahteva potrditev svezih meritev in uposteva histerezo ter izgubo senzorja.
-  Privzeto OFF; meje in identitete se nastavijo izrecno. BLE radia ne simuliramo
-  kot fizicno povezanega senzorja.
-- Neodvisen zajem IMU pri nominalno 50 Hz z dejanskim dt, voden zajem bias/rotacije,
-  locena nicla nagiba in oznacena eksperimentalna dinamicna ocena.
-- SD zapisovalnik v svoji nalogi: vrsta, odprta datoteka, redno praznjenje,
-  casovne oznake tokov in stevci izgubljenih zapisov/napak. `/sessions/` za REAL,
-  `/test/` za TEST. Zapis je privzeto OFF, `set logging on` ga vklopi in shrani.
-- Izris v pomnilniku in prenos spremenjenih delov besedila. Trije primerjalni
-  okvirji ob obeh straneh, stopinje z znakom, inkrementalen trak nagiba.
-
-## Gumbi, vezava in navigacija
-
-| Upravljalnik | GPIO | Vezava |
-| --- | --- | --- |
-| Zeleni gumb, trenutni kontakt | 32 | Kontakt med GPIO32 in GND, INPUT_PULLUP |
-| Rdeči gumb, zaskočni kontakt | 5 | Kontakt med GPIO5 in GND, INPUT_PULLUP |
-| Stikalo levo | 34 | Levi kontakt na GPIO34, obvezen 10 kΩ proti 3,3 V |
-| Stikalo desno | 35 | Desni kontakt na GPIO35, obvezen 10 kΩ proti 3,3 V |
-| Skupni kontakt stikala levo/desno | GND | V srednjem položaju sta oba kontakta odprta |
-
-GPIO34 in GPIO35 sta samo vhoda in nimata notranjih pull-up uporov. **Vsak potrebuje
-svoj upor 10 kΩ proti 3,3 V (3V3), ne proti 5 V/VIN.** Upora sta lahko pri ploščici,
-ob pinih 34/35. Pri polmetrski žici je zunanji 10 kΩ proti 3,3 V priporočljiv tudi
-za GPIO32 in GPIO5. Pritisnjen kontakt pomeni LOW. GND je skupen vsem kontaktom.
-Skupni priključek stikala preveri z merilnikom; ni nujno fizično sredinski pin.
-
-GPIO2/13/14/15 ostanejo za SD, čeprav se ob odklopljeni kartici zdijo prosti.
-GPIO16/17 nista uporabljena. GPIO0 pustimo zaradi zagonskega načina in GPIO12
-zaradi izbire napetosti flasha. GPIO5 je zagonski pin za časovni rob SDIO slave;
-te funkcije projekt ne uporablja (SD uporablja SPI). Po resetu deluje kot vhod.
-[Espressif: GPIO in zagonski pini](https://documentation.espressif.com/esp32_datasheet_en.html).
-
-| Dejanje | Rezultat |
+| Povezava | ESP32 GPIO / vezava |
 | --- | --- |
-| Kratek pritisk zelenega, nato spust | Naslednji od treh izbranih prikazov; po 5 s vrnitev |
-| Rdeči OFF → ON | Samo omogoči poskus vstopa; meni se še ne odpre |
-| Stikalo v sredino, nato drži zeleni 2 s | Vstop v nastavitve, če ni aktivnega kroga, hitrosti nad 5 km/h ali nepotrjenega alarma |
-| Stikalo levo + pritisk zelenega | En korak gor oziroma zmanjšanje vrednosti |
-| Stikalo desno + pritisk zelenega | En korak dol oziroma povečanje vrednosti |
-| Stikalo v sredino + kratek zeleni | Odpre razdelek ali stran z izbirami; potrdi izbrano vrednost in vrne nazaj |
-| Stikalo v sredino + dolg zeleni v meniju | Enaka izbira/potrditev; spust ne doda klika |
-| Drži stikalo levo/desno in drži zeleni na številčni vrednosti | Prvi korak takoj, po 600 ms se koraki ponavljajo |
-| BACK v podmeniju | Vrne na seznam razdelkov |
-| BACK na seznamu razdelkov | Zapre meni in vrne na RACE |
-| Rdeči OFF | Takojšen izhod; nepotrjena sprememba se zavrže |
-
-Stikala med koraki ni treba vračati v sredino: pusti ga v izbrani smeri in klikaj
-zeleni. Sam premik stikala ne premakne menija. Na seznamih in pri barvah/enotah
-je en pritisk en korak, tudi ob dolgem držanju. Pri tlaku se po začetnem zamiku
-ponavlja na **80 ms (12,5 koraka/s)** s korakom **0,05 bar**: od 0 do 2 bar približno
-3,64 s držanja, brez upoštevanja zakasnitev izrisa. Druge številke imajo 250 ms
-med koraki (4/s). Spust zelenega ali sprememba smeri med držanjem ustavi
-ponavljanje; za nadaljevanje spet pritisni zeleni. Premik v sredino med držanjem
-ne sme postati potrditev. Obe sklenjeni smeri ne izbereta ničesar.
-Zunaj menija zeleni še vedno odpira hitre prikaze, alarm pa potrdi kratek zeleni.
-Razpored ponavljanja ohranja ritem ob manjših zamudah izrisa; po daljši prekinitvi
-ne naredi serije zamujenih korakov naenkrat. Dejanska meritev na ploščici je 4,08 s
-za +2,00 bar, kar izpolni cilj največ petih sekund.
-
-Po izhodu z izbiro BACK rdeči lahko ostane ON, vendar moraš za nov
-vstop narediti OFF → ON in nov dvosekundni pritisk zelenega. Rdeči ON ob zagonu
-ne odklene menija, zeleni ob zagonu pa zahteva spust pred uporabo. Če že držiš
-zeleni in šele nato vklopiš rdeči, to ne odpre nastavitev.
-
-Zaščita uporablja **dejanski** merilnik kroga in dejansko GPS hitrost, tudi v TEST.
-Veljavna hitrost nad 5 km/h je sveža manj kot 1,5 s. Premik med držanjem prekine
-poskus vstopa. Začetek kroga ali zaznano gibanje nad pragom zapre tudi že odprt
-meni in zahteva ponovno odklepanje. Brez sveže GPS hitrosti ostane dvostopenjski
-vstop; to ni dokaz mirovanja in ni varnostno certificirana blokada.
-
-Terminalska simulacija uporablja isto zaščiteno logiko:
-
-```text
-button red off
-button direction center
-button red on
-button green down
-```
-
-Počakaj 2 sekundi, nato `button green up`. Za en korak:
-
-```text
-button direction right
-button green down
-button green up
-button green down
-button green up
-button direction center
-```
-
-To premakne izbiro dvakrat desno. Zdaj je stikalo v sredini: naslednji kratek
-zeleni odpre izbrani razdelek/nastavitev ali potrdi vrednost.
-Za izhod izberi BACK s kratkim pritiskom ali uporabi rdeči OFF.
-Končaj z `button red off`. Ukaza `key green` in stari `key quick` pomenita
-neposreden kratek klik. Stari `switch settings on/off` in `key left/right` so
-neposredni diagnostični ukazi za terminal in obidejo fizično odklepanje; za
-preverjanje zaščite uporabi `button ...`. Fizičnega ožičenja simulacija ne potrdi.
-
-Meni uporablja velike tiskane črke in seznam s petimi vidnimi vrsticami.
-Izbrana vrstica je rdeča, potrjena nastavitev pa zelena do naslednjega premika.
-Prvi razdelki so **DISPLAY, CALIBRATION, UNITS**, sledijo TRACK, TPMS, STORAGE in
-BACK. V DISPLAY so osnovni zaslon, GREEN 1/2/3, ozadje in prikaz kroga/delte;
-CALIBRATION vsebuje IMU CALIBRATE za voden postopek pokonci/levo/desno ter IMU ZERO
-za ločeno nastavitev ničle. Ročna izbira osi ostaja dosegljiva prek starih
-terminalskih ukazov za diagnostiko. Posamezna nastavitev odpre **novo stran**:
-na primer BACKGROUND pokaže BLACK, WHITE, DARK BLUE in BACK z velikimi črkami.
-Izbrana možnost je rdeča, shranjena zelena. Zeleni v sredini potrdi in vrne na
-prejšnji seznam; BACK v izboru zavrže osnutek. Številke imajo svojo stran z veliko
-vrednostjo. Pri tlaku prvi sredinski pritisk potrdi MIN in preklopi na MAX,
-naslednji shrani celoten par in vrne na seznam. Rdeči OFF zavrže nepotrjene spremembe.
-
-CAMERA uporablja obliko glavnega zaslona: R zgoraj levo, F zgoraj desno,
-čas kroga na veliko, hitrost pod časom na sredini in spodnji bar nagiba s stopinjami.
-Čas in hitrost sta ločena, da ostaneta oba podatka vidna. Brez opravljene kalibracije
-bar prikazuje nagib iz pospeškometra z majhno oznako **RAW** v zgornji statusni vrstici,
-ob upoštevanju obstoječe ničle nagiba. To je približek iz
-smeri gravitacije, občutljiv na pospeševanje; ne potrdi dinamične ocene, maksimumov
-ali kalibracije. Ob izgubi IMU ali zastarelih podatkih ostane `--`.
-
-Samodejni preizkus navigacije (ploščica miruje, REAL, meni zaprt; med testom ne
-premikaj kontaktov):
-
-```powershell
-.\.venv\Scripts\python.exe tools/test_panel.py --port COM4
-```
-
-Test preveri vstop, kratki/dolgi pritisk, smeri, zavrženje osnutka, izhod in
-ponovno odklepanje. Potrjene nastavitve ostanejo enake. Dnevnik je v
-`.platformio/panel_integration.log`; `selftest` vsebuje tudi blokade gibanja,
-aktivnega kroga, zagona z zadržanimi kontakti in prehoda števca časa.
-
-## Kratek TEST
-
-```text
-test on
-test lap 90000
-test lap 88000
-test tick 6000
-test sector 1 28000
-test sector 2 57000
-status
-test off
-```
-
-TEST je stalno oznacen in ne spremeni dejanske reference. Celoten primer alarma,
-ponovne oborozitve, enot in SD je v terminalskem vodicu. Tamkajsnje vrednosti
-2.0/3.0 bar so **samo simulacijski primer**, ne priporocilo za pnevmatike.
-
-## Strojna oprema
-
-| Povezava | ESP32 GPIO |
-| --- | --- |
-| GPS TX -> ESP32 RX | 19 |
-| GPS RX <- ESP32 TX | 4 |
+| Zeleni gumb, trenutni kontakt | GPIO32 proti GND, INPUT_PULLUP |
+| Rdeči gumb, zaskočni kontakt | GPIO5 proti GND, INPUT_PULLUP |
+| Stikalo levo | GPIO34, lasten 10 kΩ proti 3,3 V, kontakt proti GND |
+| Stikalo desno | GPIO35, lasten 10 kΩ proti 3,3 V, kontakt proti GND |
+| Skupni kontakt stikala | GND; na sredini sta oba kontakta odprta |
+| GPS TX → ESP32 RX | 19 |
+| GPS RX ← ESP32 TX | 4 |
 | IMU SDA / SCL | 21 / 22 |
 | SD CS / MOSI / MISO / SCK | 13 / 15 / 2 / 14 |
 | TFT CS / DC / RST | 27 / 26 / 25 |
 | TFT MOSI / MISO / SCK | 23 / 33 / 18 |
+| TFT LED/BL | Zunanje napajanje 3,3 V |
 
-NEO-6: 5 Hz, UART 38400. USB: 115200. WHO_AM_I 0x70 pomeni MPU6500.
-TFT: konfiguriran ILI9488, lezece 480x320; osvetlitev je trenutno zunanje napajana.
+GPIO34/35 nimata notranjih pull-up uporov. Vsak potrebuje svoj upor proti **3,3 V**.
+Pri polmetrski žici je zunanji 10 kΩ smiseln tudi za GPIO32/5. Vsi GND so skupni;
+sklenjen kontakt pomeni LOW. GPIO16/17 nista uporabljena. GPIO0/12 ostajata
+neuporabljena zaradi zagonskih funkcij. GPIO5 po zagonu deluje kot vhod.
 
-Pri zadnjih poskusih je nalaganje uspelo po odstranitvi SD kartice. SD MISO je
-na GPIO2, ki mora biti pri vstopu v nalagalnik nizek ali nepovezan; SD vezava
-lahko vpliva nanj. Ob podobni težavi odstrani kartico pri odklopljenem USB in
-poskusi nalaganje. To je preizkušen obvoz, ne dokončna potrditev vzroka vseh
-prejšnjih napak povezave. Za običajno uporabo vrni kartico pri odklopljenem USB.
-[Espressif: GPIO2 in nalagalni način](https://docs.espressif.com/projects/esptool/en/latest/esp32/advanced-topics/boot-mode-selection.html).
+NEO-6: nominalno 5 Hz, UART 38400. IMU: nominalno 50 Hz; WHO_AM_I 0x70 pomeni
+MPU6500. TFT je nastavljen kot ILI9488, ležeče 480 × 320. USB je 115200 baud.
 
-AiM izvor start/cilja: zgodovinski PomposaMotoL iz 2019. Sektorski meji sta
-projektni tretjini prenesene trase, ne uradni AiM tocki. Ujemanje s trenutno
-Solo 2 konfiguracijo ni potrjeno. [Izvor in geometrija](tracks/pomposa_long.json).
-Ponovljiv uvoz: `python tools/import_aim_pomposa.py`; aktualna geometrija ostane
-v generiranem `include/pomposa_track.h`, katalog pa v `include/track_catalog.h`.
+SD MISO na GPIO2 lahko ovira nalagalni način. Če nalaganje odpove, pri izklopljenem
+USB začasno odstrani kartico, priklopi USB in naloži. Za uporabo jo vrni pri
+izklopljenem USB. To je obvoz, ki ne potrjuje vzroka vsake napake povezave.
+[Espressif: zagonski način](https://docs.espressif.com/projects/esptool/en/latest/esp32/advanced-topics/boot-mode-selection.html).
 
-## SD datoteke in vodena kalibracija IMU
+## Potrjeno upravljanje
 
-V `SETUP > STORAGE > SD FILES` so imena datotek in velikosti. Seznam ima
-po pet datotek ter `NEXT PAGE`, `PREVIOUS PAGE` in `BACK`. Pregleda korenski
-imenik in do tri nivoje podimenikov. Pregled poteka postopoma med zapisi CSV.
-Z levo/desno in zelenim gumbom izbereš vrstico, na sredini jo potrdiš.
+| Dejanje | Rezultat |
+| --- | --- |
+| Kratek zeleni zunaj nastavitev | Naslednja od treh QUICK INFO strani; povratek po 5 s |
+| Rdeči OFF → ON | Omogoči poskus vstopa; meni se še ne odpre |
+| Stikalo na sredini + zeleni 2 s | Odpre SETTINGS, če ni aktivnega kroga, sveže hitrosti nad 5 km/h ali nepotrjenega alarma |
+| Stikalo levo + zeleni | Ena vrstica gor oziroma manjša številčna vrednost |
+| Stikalo desno + zeleni | Ena vrstica dol oziroma večja številčna vrednost |
+| Stikalo na sredini + zeleni | Odpre ali potrdi izbrano vrstico; BACK vrne en nivo |
+| Držanje smeri in zelenega pri urejanju številke | Ponavljanje po 600 ms; tlak 0,05 bar na 80 ms, ostale številke na 250 ms |
+| Rdeči OFF | Izhod in zavrnitev nepotrjenega osnutka |
+| Kratek zeleni ob alarmu | Potrditev alarma |
 
-`SETUP > STORAGE > FORMAT SD` najprej ponudi `NO - KEEP FILES`.
-Samo izrecna izbira `ERASE ALL FILES` formatira kartico v FAT32 in izbriše
-vse datoteke, tudi shranjene reference najboljših krogov. Pred tem izklopi
-`LOGGING`; motor mora mirovati, brez aktivnega kroga ali alarma, v načinu REAL.
-Med formatiranjem ne odklapljaj napajanja. Običajen zagon kartice ne formatira.
+Stikalo samo ne premika izbire; v smeri ga lahko pustiš in klikaš zeleni.
+Seznami se ob držanju ne ponavljajo. Premik smeri med držanjem prekine ponavljanje
+in ne postane potrditev. Vstop in izhod ne sprožita dodatnega kratkega klika.
+Po root BACK je za nov vstop potreben rdeči OFF → ON in nov dolg zeleni.
+Zaščita uporablja dejanski krog in dejansko svežo GPS hitrost tudi v razvojnem TEST.
+Začetek kroga ali zaznana hitrost nad pragom zapre odprte nastavitve.
 
-`SETUP > CALIBRATION > IMU CALIBRATE` vodi skozi tri položaje:
+## Razpored SETTINGS
 
-1. Motor postavi pokonci v želeno ničelno lego in na sredini pritisni zeleni gumb.
-2. Po meritvi in napisu `OK` motor nagni **levo za vsaj 5°** in znova potrdi.
-3. Po naslednjem `OK` ga nagni **desno za vsaj 5°** in potrdi.
-
-Pri vsakem položaju meri dve sekundi. Dopušča manjši šum; preverja spremembo
-smeri gravitacije, raztros pospeška in giroskopa ter vrtenje glede na izmerjeni
-odmik giroskopa. Ob premikanju meritev ponavlja. Nagiba sta lahko različno velika,
-do 70°, vendar morata biti na nasprotnih straneh iste ravnine nagibanja.
-Iz treh položajev določi osi motorja tudi pri zasukanem senzorju. Šele uspešno
-zaključen celoten postopek shrani kalibracijo in novo ničlo. Rdeči gumb OFF
-prekine postopek in ohrani dosedanjo kalibracijo. Postopek izvajaj brez delovanja
-motorja; vibracije delujočega motorja niso namen tega preverjanja mirovanja.
-
-Terminalski ukazi (vsakemu sledi Enter):
+Vsak meni, seznam izbir in urejevalnik se odpre z izbranim **BACK** na vrstici 0.
+V nadrejenem meniju se po vrnitvi označi postavka, iz katere si prišel. Izbrana
+vrstica je rdeča, shranjena možnost zelena. Premikanje izbire ne spremeni shranjene
+vrednosti; BACK zavrže nepotrjen osnutek.
 
 ```text
-sd files
-sd files 5
-sd format
-imu calibrate
-imu next
-imu status
-imu cancel
-selftest storage-imu
+BACK
+DISPLAY
+  BACK / DEFAULT SCREEN / QUICK INFO / BACKGROUND / LAP HOLD / LAP DELTA
+  QUICK INFO: BACK / QUICK INFO 1 / QUICK INFO 2 / QUICK INFO 3
+  LAP DELTA: BACK / SECONDS PER LIGHT
+CALIBRATION
+  BACK / IMU CALIBRATE / IMU ZERO
+UNITS
+  BACK / SPEED / PRESSURE / TEMPERATURE / ACCEL / UTC OFFSET
+TRACK
+  BACK / TRACK
+TPMS
+  BACK / PRESSURE ALARM / FRONT MIN/MAX / REAR MIN/MAX / HYSTERESIS /
+  ALARM CONFIRM / SENSOR TIMEOUT / FRONT SENSOR ID / REAR SENSOR ID
+STORAGE
+  BACK / SD LOGGING / SD STATUS / SD FILES / FORMAT SD
 ```
 
-`sd format` samo izpiše navodilo za izrecno potrditev; sam ne briše.
-`imu next` začne meritev trenutnega položaja; naslednjega začneš šele, ko motor
-postaviš po novem navodilu. `selftest storage-imu` preverja samo novo logiko
-SD/IMU s sintetičnimi meritvami. Ne briše kartice in ne shrani kalibracije.
-Dejansko formatiranje in fizična kalibracija ostajata ločena ročna preizkusa.
+Številčna nastavitev najprej pokaže BACK in EDIT VALUE. Po izbiri EDIT VALUE
+deluje dosedanje hitro nastavljanje. Pri tlaku prvi sredinski pritisk potrdi MIN
+in preklopi na MAX; drugi shrani celoten par. Rdeči OFF spremembe zavrže.
+BACKGROUND ponudi BACK, BLACK, WHITE in DARK BLUE. Enote in QUICK INFO imajo
+isti princip. Obstoječe vrednosti NVS, vključno z `quickSlots` in `deltaIndex`,
+ohranijo pomen; stare nastavitve v3 se še vedno prenesejo v v4.
 
-Preverjanje te spremembe: prevod ESP32 uspešen (flash 719054 B / 54,9 %,
-statični RAM 52840 B / 16,1 %); novih 35 SD/IMU preverjanj C++ na računalniku
-uspešnih, brez brisanja kartice ali zapisov NVS. Starih testnih sklopov nismo
-ponavljali. Nalaganje in fizično preverjanje še čakata na USB povezavo ploščice.
+## Primerjalne lučke LAP DELTA
+
+QUICK INFO določa vsebino hitrih strani in ne upravlja lučk. Lučke imajo eno
+skupno nastavitev: **DISPLAY → LAP DELTA → SECONDS PER LIGHT**: 0,1 / 0,2 / 0,5 / 1,0 s.
+Obe strani zrcalita iste tri stopnje. Število je
+`min(3, floor(abs(delta_ms) / step_ms))`, brez zaokroževanja izpisa.
+
+| Korak | 1 stopnja | 2 stopnji | 3 stopnje |
+| --- | --- | --- | --- |
+| 0,1 s | 0,10 s | 0,20 s | ≥ 0,30 s |
+| 0,5 s | 0,50 s | 1,00 s | ≥ 1,50 s |
+
+Pod enim korakom ni prižgane stopnje. Hitreje je zeleno, počasneje rdeče;
+pravila so enaka za oba predznaka. Delta primerja kumulativni čas pri S1, S2 in
+cilju z isto mejo najboljšega veljavnega celotnega kroga dneva za isto progo.
+Med mejami ostane zadnja primerjava. Brez reference je indikator nevtralen;
+to ni zvezna napoved iz celotne poti.
+
+## SD in kalibracija
+
+SD LOGGING je privzeto OFF. `set logging on` ga vključi in shrani nastavitev.
+REAL se zapisuje v `/sessions/`, razvojni TEST v `/test/`. Zapisi vsebujejo
+časovne oznake GPS, surovi IMU, dogodke in geometrijo; napaka SD ne ustavi timinga.
+SD FILES pokaže po pet imen datotek in velikosti, BACK je prvi. NEXT/PREVIOUS
+PAGE zamenjata stran. Pregled sega do treh nivojev podimenikov in poteka med zapisi.
+
+FORMAT SD ponudi **BACK, NO – KEEP FILES, ERASE ALL FILES**. Samo zadnja izrecna
+izbira formatira FAT32 in izbriše vse datoteke, tudi dnevne reference BEST.
+Zapisovanje mora biti izklopljeno; motor miruje, brez aktivnega kroga/alarma in
+v REAL. Napajanja med formatiranjem ne odklapljaj. Zagon sam kartice ne formatira.
+
+IMU CALIBRATE vodi skozi pokončen položaj, levi in desni nagib. Na vsakem koraku
+je najprej izbran BACK; za začetek izberi MEASURE. V pokončnem položaju postavi
+motor v želeno ničlo, nato nagni levo in desno za 5–70°. Vsakič meri dve sekundi
+in pokaže OK; manjši šum dopušča, dejansko premikanje povzroči ponovitev meritve.
+Iz treh položajev določi osi tudi pri zasukanem senzorju. Shrani šele uspešen
+celoten postopek. BACK ali rdeči OFF varno prekine zajem in ohrani prejšnjo kalibracijo.
+IMU ZERO omogoča poznejšo ločeno nastavitev ničle.
+
+## Prevod, terminal in razvojni build
+
+```powershell
+.\.venv\Scripts\platformio.exe run -e esp32dev
+.\.venv\Scripts\platformio.exe run -e esp32dev --target upload --upload-port COM4
+.\.venv\Scripts\platformio.exe device monitor --port COM4 --baud 115200 --filter send_on_enter --echo
+```
+
+Vsak ukaz potrdi z Enter. Ctrl+C zapre monitor; pred nalaganjem ga zapri.
+Osnovni ukazi: `help`, `status`, `display status`, `verbose on/off`, `screen race/camera`,
+`settings show/reload`, `set ...`, `sd status`, `sd files`, `sd inspect`,
+`imu status`, `imu calibrate/next/cancel/zero` in `reference reload`.
+`sd format` samo izpiše navodila za potrditev in ne briše kartice.
+
+Razvojna različica zahteva izrecno okolje `esp32dev-dev` (`LAP_TIMER_DEV=1`):
+
+```powershell
+.\.venv\Scripts\platformio.exe run -e esp32dev-dev
+.\.venv\Scripts\python.exe tools/test_storage_imu.py --suite settings
+```
+
+Samo v razvojnem buildu so dostopni `selftest`, `selftest settings`,
+`selftest storage-imu`, simulator `test ...`, simulacija kontaktov `button ...`
+ter diagnostični `key ...` in `switch ...`. Testni viri so ohranjeni; stari demo
+zasloni, zeleni preview in enoznakovni legacy ukazi so odstranjeni.
+Podrobnosti: [terminalski vodič](docs/codex_terminal_test.md).
+
+## Preverjanje te spremembe
+
+Prevod običajne in razvojne različice je uspešen. Ciljni preizkus nastavitev:
+**34 uspešnih, 0 neuspešnih** preverjanj BACK,
+QUICK INFO, shranjenih vrednosti, številčnega ponavljanja in pragov lučk.
+NVS shema/zapisovalnik, GPS nastavitve, timing/proga, IMU/kalibracija ter fizični
+GPIO zajem so primerjani z izhodiščem in ostajajo nespremenjeni.
+
+Iz običajne različice so odstranjeni nadomeščeni per-GGA CSV/readback, stari
+demo zasloni, zeleni preview, podvojeno legacy upravljanje in odslužena statistika.
+Testni viri ostajajo dostopni v razvojnem buildu. Poraba spodaj je izmerjena za
+celoten firmware in vključuje tudi izločitev razvojnih funkcij iz običajnega builda.
+
+| Build | Flash aplikacije | Statični RAM |
+| --- | --- | --- |
+| Izhodišče 2488d62 z razvojnimi funkcijami | 719054 B | 52840 B |
+| Običajni esp32dev | 644278 B (49,2 %) | 52544 B (16,0 %) |
+| Razvojni esp32dev-dev | 707254 B (54,0 %) | 52560 B (16,0 %) |
+
+Običajni build prihrani **74776 B flasha in 296 B statičnega RAM-a** glede na
+izmerjeno izhodišče. Dinamična poraba nalog in medpomnilnikov ni vključena v
+statični RAM izpisa prevajalnika. Celotnih strojnih/serijskih sklopov pri tej
+spremembi ne ponavljamo; ne formatiramo kartice in ne spreminjamo kalibracije.
 
 ## Omejitve
 
-Dinamicni nagib je EXPERIMENTAL, brez opravljene fizicne kalibracije neveljaven.
-GNSS pomoc uporablja hitrost in smer, vendar nima PPS sinhronizacije; dolgi
-ovinki, naklon ceste, vibracije, zdrs in izguba GNSS se niso terensko potrjeni.
-BLE dekoder še ni implementiran. Vhodi gumbov so implementirani; fizično vezavo
-in delovanje novih kontaktov je še treba preveriti. Celoten seznam in
-postopek kalibracije sta v terminalskem vodicu. Fuzija ne skriva surovih meritev.
-Prikazov in utripanja s strani ne more potrditi serijski test sam.
+**Znana napaka optimizirane različice:** po uporabnikovem preizkusu se zaslon
+CAMERA prikazuje enako kot RACE. Razlikovanje prikazov je treba še popraviti.
+
+Sprejem BLE TPMS, merjenje baterije in vključitev pospeška IMU v interpolacijo
+prečkanja črte še niso implementirani. Dinamični nagib ostaja eksperimentalni:
+vibracije, pospeševanje, zdrs, naklon ceste in časovna poravnava GNSS ga omejujejo.
+GNSS nima PPS sinhronizacije. Fizična nova kalibracija in formatiranje SD še nista
+potrjena na napravi. Običajna različica je bila 26. 10. 2026 uspešno naložena
+na COM4 brez SD kartice; zapis je preverjen s kontrolno vsoto, zagon in odgovor
+na `status` sta potrjena. Nastavitve NVS so ohranjene. Za uporabo SD jo vrni
+pri odklopljenem USB in ploščico znova zaženi.
+
+Pomposa Long uporablja zgodovinski AiM PomposaMotoL. Sektorski meji sta projektni
+tretjini trase, ne uradni AiM točki; ujemanje s trenutno Solo 2 konfiguracijo ni
+potrjeno. [Izvor in geometrija](tracks/pomposa_long.json); ponovljiv uvoz:
+`python tools/import_aim_pomposa.py`.

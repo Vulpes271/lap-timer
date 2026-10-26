@@ -8,6 +8,12 @@ from pathlib import Path
 import shutil
 import subprocess
 import os
+import argparse
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--suite", choices=["storage-imu", "settings"], default="storage-imu")
+suite = parser.parse_args().suite
+header, function = ("settings_selftest.h", "runSettingsSelfTests") if suite == "settings" else ("storage_imu_selftest.h", "runStorageImuSelfTests")
 
 root = Path(__file__).resolve().parents[1]
 build = root / ".pio" / "host-tests"
@@ -32,8 +38,8 @@ compiler = [str(zig), "c++"] if zig.exists() else [native]
     'void* operator new(std::size_t n){void* p=std::malloc(n);if(!p)std::abort();return p;}\n'
     'void operator delete(void* p) noexcept {std::free(p);}\n'
     'void operator delete(void* p,std::size_t) noexcept {std::free(p);}\n'
-    '#include "storage_imu_selftest.h"\n'
-    'int main(){Stream output;return runStorageImuSelfTests(output)?0:1;}\n',
+    f'#include "{header}"\n'
+    f'int main(){{Stream output;return {function}(output)?0:1;}}\n',
     encoding="utf-8",
 )
 binary = build / "storage_imu.exe"

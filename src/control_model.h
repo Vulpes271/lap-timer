@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include "track_catalog.h"
 #include "sd_view.h"
+#include "lap_delta.h"
 
 namespace Control {
 inline bool expired(uint32_t now, uint32_t since, uint32_t duration) { return uint32_t(now - since) >= duration; }
@@ -162,38 +163,43 @@ struct Source { Session session; Pressure pressure[2]; Alarm alarms[2][2]; uint3
 enum Menu : unsigned { DefaultScreen, Quick1, Quick2, Quick3, Background, SpeedUnit, PressureUnit, TemperatureUnit, AccelUnit, Track,
   LapHold, DeltaStep, AlarmEnabled, FrontRange, RearRange, Hysteresis, ConfirmTime,
   SensorTimeout, FrontId, RearId, ImuUpright, ImuLeft, ImuForward, ImuZero,
-  TimeOffset, Logging, SdStatus, Back, SdFiles, SdFormat, ImuWizard, MenuCount };
+  TimeOffset, Logging, SdStatus, Back, SdFiles, SdFormat, ImuWizard, QuickInfoMenu, LapDeltaMenu, MenuCount };
 constexpr unsigned ImuWizardNext=1001;
+constexpr unsigned ImuWizardCancel=1002;
 inline const char* menuName(unsigned item) {
-  static const char* names[] = {"DEFAULT SCREEN","GREEN 1","GREEN 2","GREEN 3","BACKGROUND","SPEED UNIT","PRESSURE UNIT","TEMPERATURE UNIT","ACCEL UNIT",
-    "TRACK","LAP HOLD","DELTA PER SEGMENT","PRESSURE ALARM","FRONT MIN/MAX","REAR MIN/MAX","HYSTERESIS",
+  static const char* names[] = {"DEFAULT SCREEN","QUICK INFO 1","QUICK INFO 2","QUICK INFO 3","BACKGROUND","SPEED UNIT","PRESSURE UNIT","TEMPERATURE UNIT","ACCEL UNIT",
+    "TRACK","LAP HOLD","SECONDS PER LIGHT","PRESSURE ALARM","FRONT MIN/MAX","REAR MIN/MAX","HYSTERESIS",
     "ALARM CONFIRM","SENSOR TIMEOUT","FRONT SENSOR ID","REAR SENSOR ID","IMU UPRIGHT","IMU LEFT",
-    "IMU FORWARD","IMU ZERO","UTC OFFSET","SD LOGGING","SD STATUS","NAZAJ","SD FILES","FORMAT SD","IMU CALIBRATE"};
+    "IMU FORWARD","IMU ZERO","UTC OFFSET","SD LOGGING","SD STATUS","BACK","SD FILES","FORMAT SD","IMU CALIBRATE","QUICK INFO","LAP DELTA"};
   return item < MenuCount ? names[item] : "?";
 }
-enum class Category : uint8_t { Display, Calibration, Units, Track, Tpms, Storage, Back, Count };
+enum class Category : uint8_t { Display, Calibration, Units, Track, Tpms, Storage, QuickInfo, LapDelta, Back, Count };
 inline const char* categoryName(unsigned category){
-  static const char* names[]={"DISPLAY","CALIBRATION","UNITS","TRACK","TPMS","STORAGE","BACK"};
+  static const char* names[]={"DISPLAY","CALIBRATION","UNITS","TRACK","TPMS","STORAGE","QUICK INFO","LAP DELTA","BACK"};
   return category<unsigned(Category::Count)?names[category]:"?";
 }
 inline unsigned categoryItem(unsigned category,unsigned row){
-  static const unsigned display[]={DefaultScreen,Quick1,Quick2,Quick3,Background,LapHold,DeltaStep,Back};
-  static const unsigned calibration[]={ImuWizard,ImuZero,Back};
-  static const unsigned units[]={SpeedUnit,PressureUnit,TemperatureUnit,AccelUnit,TimeOffset,Back};
-  static const unsigned track[]={Track,Back};
-  static const unsigned tpms[]={AlarmEnabled,FrontRange,RearRange,Hysteresis,ConfirmTime,SensorTimeout,FrontId,RearId,Back};
-  static const unsigned storage[]={Logging,SdStatus,SdFiles,SdFormat,Back};
+  static const unsigned display[]={Back,DefaultScreen,QuickInfoMenu,Background,LapHold,LapDeltaMenu};
+  static const unsigned calibration[]={Back,ImuWizard,ImuZero};
+  static const unsigned units[]={Back,SpeedUnit,PressureUnit,TemperatureUnit,AccelUnit,TimeOffset};
+  static const unsigned track[]={Back,Track};
+  static const unsigned tpms[]={Back,AlarmEnabled,FrontRange,RearRange,Hysteresis,ConfirmTime,SensorTimeout,FrontId,RearId};
+  static const unsigned storage[]={Back,Logging,SdStatus,SdFiles,SdFormat};
+  static const unsigned quick[]={Back,Quick1,Quick2,Quick3};
+  static const unsigned delta[]={Back,DeltaStep};
   switch(Category(category)){
-    case Category::Display:return row<8?display[row]:Back;
+    case Category::Display:return row<6?display[row]:Back;
     case Category::Calibration:return row<3?calibration[row]:Back;
     case Category::Units:return row<6?units[row]:Back;
     case Category::Track:return row<2?track[row]:Back;
     case Category::Tpms:return row<9?tpms[row]:Back;
     case Category::Storage:return row<5?storage[row]:Back;
+    case Category::QuickInfo:return row<4?quick[row]:Back;
+    case Category::LapDelta:return row<2?delta[row]:Back;
     default:return Back;
   }
 }
-inline unsigned categorySize(unsigned category){static const unsigned sizes[]={8,3,6,2,9,5,1};return category<7?sizes[category]:1;}
+inline unsigned categorySize(unsigned category){static const unsigned sizes[]={6,3,6,2,9,5,4,2,1};return category<9?sizes[category]:1;}
 class Model {
  public:
   Config config, draft;
@@ -202,6 +208,8 @@ class Model {
   bool quickActive = false;
   bool treeMenu=false,menuConfirmed=false;
   unsigned menuDepth=0,menuCategory=0,menuRow=0,forwardAxis=0,draftForwardAxis=0,editRow=0;
+  unsigned parentCategory=0,parentRow=0,specialCursor=0;
+  bool numericActive=false;
   unsigned quickIndex = 0, menu = 0, rangePart = 0;
   Base base = Base::Race;
   int direction = 0;
@@ -211,57 +219,70 @@ class Model {
   bool filesLoading=false,sdBusy=false,sdFormatDone=false,sdFormatOk=false;
   uint32_t fileRequest=0;Sd::Page filePage;
   char error[96] = "";
-  unsigned fileRowCount()const{return filePage.count+(fileFirst?1:0)+(fileFirst+filePage.count<filePage.total?1:0)+1;}
+  unsigned fileRowCount()const{return 1+filePage.count+(fileFirst?1:0)+(fileFirst+filePage.count<filePage.total?1:0);}
   void fileRowLabel(unsigned row,char* out,size_t size)const{
+    if(!row){std::snprintf(out,size,"BACK");return;}--row;
     if(row<filePage.count){const char* path=filePage.entries[row].name;const char* name=std::strrchr(path,'/');std::snprintf(out,size,"%s",name?name+1:path);return;}
     row-=filePage.count;
-    if(fileFirst){if(row==0){std::snprintf(out,size,"PREVIOUS PAGE");return;}--row;}
-    if(fileFirst+filePage.count<filePage.total){if(row==0){std::snprintf(out,size,"NEXT PAGE");return;}--row;}
-    std::snprintf(out,size,"BACK");
+    if(fileFirst){if(!row){std::snprintf(out,size,"PREVIOUS PAGE");return;}--row;}
+    std::snprintf(out,size,"NEXT PAGE");
   }
   void specialSelect(){
-    if(specialPage==ImuWizard){action=ImuWizardNext;return;}
-    if(specialPage==SdFormat){if(!sdBusy)specialPage=0;return;}
-    if(specialPage!=SdFiles||filesLoading)return;
-    if(fileCursor<filePage.count)return;
-    unsigned row=fileCursor-filePage.count;
-    if(fileFirst){if(row==0){fileFirst=fileFirst>=Sd::Page::capacity?fileFirst-Sd::Page::capacity:0;filesLoading=true;action=SdFiles;return;}--row;}
-    if(fileFirst+filePage.count<filePage.total){if(row==0){fileFirst+=Sd::Page::capacity;filesLoading=true;action=SdFiles;return;}--row;}
-    specialPage=0;
+    if(specialPage==ImuWizard){if(!specialCursor){action=ImuWizardCancel;specialPage=0;}else action=ImuWizardNext;return;}
+    if(specialPage==SdFormat){specialPage=0;return;}
+    if(specialPage!=SdFiles)return;
+    if(!fileCursor){specialPage=0;return;}
+    if(filesLoading||fileCursor<=filePage.count)return;
+    unsigned row=fileCursor-filePage.count-1;
+    if(fileFirst){if(!row){fileFirst=fileFirst>=Sd::Page::capacity?fileFirst-Sd::Page::capacity:0;fileCursor=0;filesLoading=true;action=SdFiles;return;}--row;}
+    if(fileFirst+filePage.count<filePage.total){fileFirst+=Sd::Page::capacity;fileCursor=0;filesLoading=true;action=SdFiles;}
   }
-  unsigned treeCount()const{return menuDepth?categorySize(menuCategory):unsigned(Category::Count);}
+  unsigned treeCount()const{return menuDepth?categorySize(menuCategory):7;}
   const char* treeLabel(unsigned row)const{
-    if(!menuDepth)return categoryName(row);
-    const auto item=categoryItem(menuCategory,row);return item==Back?"BACK":menuName(item);
+    if(!menuDepth)return row?categoryName(row-1):"BACK";
+    return menuName(categoryItem(menuCategory,row));
   }
   void openTree(uint32_t actual){
     input(Input::SettingsOn,actual);treeMenu=true;menuDepth=menuCategory=menuRow=0;
-    menuConfirmed=false;editing=false;specialPage=0;menu=DefaultScreen;error[0]=0;
+    menuConfirmed=false;editing=numericActive=false;specialPage=0;menu=Back;error[0]=0;
+  }
+  void treeBack(){
+    editing=numericActive=false;menuConfirmed=false;error[0]=0;
+    if(menuDepth==2){menuDepth=1;menuCategory=parentCategory;menuRow=parentRow;menu=categoryItem(menuCategory,menuRow);}
+    else if(menuDepth){menuDepth=0;menuRow=menuCategory+1;menu=Back;}
+    else {settingsSuppressed=true;base=Base::Race;quickActive=false;source().session.hold=false;}
   }
   void treeShort(uint32_t actual){
     if(specialPage){specialSelect();return;}
     if(editing){treeLong(actual);return;}
-    if(!menuDepth){
-      if(menuRow==unsigned(Category::Back)){settingsSuppressed=true;base=Base::Race;quickActive=false;source().session.hold=false;return;}
-      menuCategory=menuRow;menuDepth=1;menuRow=0;menu=categoryItem(menuCategory,0);
-    }else if(menu==Back){menuDepth=0;menuRow=menuCategory;menu=DefaultScreen;}
-    else {treeLong(actual);return;}
-    menuConfirmed=false;error[0]=0;(void)actual;
+    if(!menuRow){treeBack();return;}
+    if(!menuDepth){menuCategory=menuRow-1;menuDepth=1;menuRow=0;menu=Back;}
+    else if(menu==QuickInfoMenu||menu==LapDeltaMenu){
+      parentCategory=menuCategory;parentRow=menuRow;menuCategory=unsigned(menu==QuickInfoMenu?Category::QuickInfo:Category::LapDelta);
+      menuDepth=2;menuRow=0;menu=Back;
+    }else {treeLong(actual);return;}
+    menuConfirmed=false;error[0]=0;
   }
   void treeLong(uint32_t actual){
     if(specialPage){specialSelect();return;}
-    if(!menuDepth||menu==Back){treeShort(actual);return;}
+    if(!menuDepth||menu==Back||menu==QuickInfoMenu||menu==LapDeltaMenu){treeShort(actual);return;}
     if(!editing&&(menu==SdFiles||menu==ImuWizard)){
-      specialPage=menu;action=menu;menuConfirmed=false;error[0]=0;
+      specialPage=menu;specialCursor=0;action=menu;menuConfirmed=false;error[0]=0;
       if(menu==SdFiles){fileFirst=fileCursor=0;filesLoading=true;}return;
     }
-    if(!editing){draft=config;draftForwardAxis=forwardAxis;formatChoice=0;editing=true;rangePart=0;editRow=choiceIndex(draft);menuConfirmed=false;error[0]=0;return;}
-    if(choiceCount() && editRow==choiceCount()){editing=false;menuConfirmed=false;error[0]=0;return;}
-    if((menu==FrontRange||menu==RearRange)&&rangePart++==0)return;
-    if(menu==SdFormat){editing=false;menuConfirmed=false;if(editRow==1){action=SdFormat;specialPage=SdFormat;sdFormatDone=false;}return;}
+    if(!editing){draft=config;draftForwardAxis=forwardAxis;formatChoice=0;editing=true;numericActive=false;rangePart=0;editRow=0;menuConfirmed=false;error[0]=0;return;}
+    if(numericEditor()){
+      if(!numericActive){if(!editRow){editing=false;draft=config;}else numericActive=true;return;}
+      if((menu==FrontRange||menu==RearRange)&&rangePart++==0)return;
+      if(commit(draft)){numericActive=false;menuConfirmed=true;}return;
+    }
+    if(!editRow){editing=false;draft=config;menuConfirmed=false;error[0]=0;return;}
+    setChoice(editRow-1);
+    if(menu==SdFormat){editing=false;menuConfirmed=false;if(editRow==2){action=SdFormat;specialPage=SdFormat;sdFormatDone=false;}return;}
     if((menu>=ImuUpright&&menu<=ImuZero)||menu==SdStatus){if(menu==ImuForward)forwardAxis=draftForwardAxis;action=menu;editing=false;menuConfirmed=true;return;}
     if(commit(draft))menuConfirmed=true;
   }
+  bool numericAdjusting()const{return editing&&numericEditor()&&numericActive;}
   bool numericEditor()const{
     return menu==LapHold||menu==FrontRange||menu==RearRange||menu==Hysteresis||menu==ConfirmTime||menu==SensorTimeout||menu==TimeOffset;
   }
@@ -292,7 +313,7 @@ class Model {
     }
   }
   void choiceLabel(unsigned row,char* out,size_t size)const{
-    if(row==choiceCount()){std::snprintf(out,size,"BACK");return;}
+    if(!row){std::snprintf(out,size,"BACK");return;}--row;
     const char* label="START";
     switch(menu){
       case DefaultScreen:label=row?"CAMERA":"RACE";break;
@@ -337,7 +358,7 @@ class Model {
   const Source& source() const { return testMode ? simulated : real; }
   uint32_t time(uint32_t actual) const { return actual + (testMode ? testOffset : 0); }
   double deltaStepMs() const { const double values[] = {100,200,500,1000}; return values[config.deltaIndex]; }
-  unsigned segments(double delta) const { return std::fabs(delta) <= 10 ? 0 : unsigned(std::fmin(3.0,std::ceil(std::fabs(delta) / deltaStepMs()))); }
+  unsigned segments(double delta) const { return deltaLights(delta,deltaStepMs(),source().session.deltaValid); }
   bool unacknowledged() const {
     for (const auto& wheel : source().alarms) for (const auto& alarm : wheel)
       if (alarm.active && !alarm.acknowledged) return true;
@@ -374,10 +395,10 @@ class Model {
   void input(Input event, uint32_t actual) {
     const uint32_t now = time(actual);
     if (event == Input::SettingsOn) {
-      if (!settingsOn) { settingsOn = true; settingsSuppressed = false; editing = false; menu = 0; treeMenu=false;menuConfirmed=false; }
+      if (!settingsOn) { settingsOn=true;settingsSuppressed=false;editing=numericActive=false;menu=Back;treeMenu=true;menuDepth=menuRow=0;specialPage=0;menuConfirmed=false; }
       return;
     }
-    if (event == Input::SettingsOff) { settingsOn = false; settingsSuppressed = false; editing = false; treeMenu=false;menuConfirmed=false;specialPage=0;return; }
+    if (event == Input::SettingsOff) { settingsOn = false; settingsSuppressed = false; editing = numericActive = false; draft=config;treeMenu=false;menuConfirmed=false;specialPage=0;return; }
     if (event == Input::Center) { direction = 0; return; }
     if (event == Input::Left || event == Input::Right) {
       const int next = event == Input::Left ? -1 : 1;
@@ -385,13 +406,14 @@ class Model {
       if (!edge) return;
       if (settingsOn && !settingsSuppressed) {
         menuConfirmed=false;error[0]=0;
-        if(specialPage){if(specialPage==SdFiles&&!filesLoading)fileCursor=(fileCursor+fileRowCount()+next)%fileRowCount();}
+        if(specialPage){if(specialPage==SdFiles&&!filesLoading)fileCursor=(fileCursor+fileRowCount()+next)%fileRowCount();else if(specialPage==ImuWizard)specialCursor=(specialCursor+2+next)%2;}
         else if (editing && treeMenu && choiceCount()){
           editRow=(editRow+choiceCount()+1+next)%(choiceCount()+1);
-          if(editRow<choiceCount())setChoice(editRow);
-        }else if (editing) adjust(next);
-        else if(treeMenu){menuRow=(menuRow+treeCount()+next)%treeCount();menu=menuDepth?categoryItem(menuCategory,menuRow):DefaultScreen;}
-        else menu = (menu + MenuCount + next) % MenuCount;
+
+        }else if(editing&&numericEditor()&&!numericActive)editRow=(editRow+2+next)%2;
+        else if (editing) adjust(next);
+        else if(treeMenu){menuRow=(menuRow+treeCount()+next)%treeCount();menu=menuDepth?categoryItem(menuCategory,menuRow):Back;}
+
       } else { base = next < 0 ? Base::Race : Base::Camera; quickActive = false; }
       return;
     }
@@ -403,13 +425,7 @@ class Model {
       return;
     }
     if (settingsOn && !settingsSuppressed) {
-      if(treeMenu){treeShort(actual);return;}
-      if (menu == Back) { settingsSuppressed = true; editing = false; return; }
-      if (menu >= ImuUpright && menu <= ImuZero) { action = menu; return; }
-      if (menu == SdStatus) { action = SdStatus; return; }
-      if (!editing) { draft = config; editing = true; rangePart = 0; }
-      else if ((menu == FrontRange || menu == RearRange) && rangePart++ == 0) return;
-      else if (commit(draft)) editing = false;
+      treeShort(actual);
       return;
     }
     if (!quickActive || expired(now,quickAt,5000)) quickIndex = 0;
@@ -419,7 +435,7 @@ class Model {
   void tap(bool right, uint32_t now) { input(Input::Center,now); input(right ? Input::Right : Input::Left,now); input(Input::Center,now); }
   void setTest(bool enabled) {
     testMode = enabled; simulated = Source(); testOffset = 0;
-    quickActive = false; editing = false; settingsOn = false; settingsSuppressed = false;
+    quickActive = false; editing = numericActive = false; specialPage=0;settingsOn = false; settingsSuppressed = false;
     base = Base(config.base); direction = 0;
   }
   bool testLap(double ms, uint32_t actual) {

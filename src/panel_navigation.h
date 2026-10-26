@@ -40,7 +40,7 @@ class PanelNavigation {
           gestureDirection=direction(next);longUsed=true;entryCandidate=false;
           if(gestureDirection!=2){
             m.tap(gestureDirection>0,at);
-            repeat=m.treeMenu&&m.editing&&m.numericEditor();
+            repeat=m.treeMenu&&m.numericAdjusting();
             result=PanelAction::Step;
           }
         }
@@ -59,7 +59,7 @@ class PanelNavigation {
       entryCandidate=false;repeat=false;
       if(menuOpen(m)){leave(m,now);armed=redReady=false;longUsed=true;tracking=false;return PanelAction::Exited;}
     }
-    if(tracking&&state.green&&repeat&&menuOpen(m)&&!m.unacknowledged()&&m.editing&&m.numericEditor()&&
+    if(tracking&&state.green&&repeat&&menuOpen(m)&&!m.unacknowledged()&&m.numericAdjusting()&&
        direction(state)==gestureDirection&&int32_t(now-repeatAt)>=0){
       // No catch-up burst after a display/SD stall: at most one step per tick.
       m.tap(gestureDirection>0,now);

@@ -7,7 +7,6 @@
 class DeviceSettings {
  public:
   float leanZeroDegrees = 0;
-  bool greenPreview = false;  // Enable explicitly with G; timing starts neutral.
 
   void begin() {
     Preferences preferences;
