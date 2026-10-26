@@ -414,6 +414,19 @@ at most 23 ASCII letters/digits or `:`, `-`, `_`, `.` (e.g. a MAC address).
 
 ## Daily reference and SD
 
+`STORAGE > SD FILES` lists five filenames per page with sizes and BACK/NEXT/
+PREVIOUS navigation. `sd files [FIRST_INDEX]` prints full paths in the terminal.
+The directory walk handles root plus three nested levels and processes one
+entry between queued writes, instead of pausing CSV acquisition for a full scan.
+
+`STORAGE > FORMAT SD` defaults to NO; only ERASE ALL FILES requests FAT32
+formatting. Logging must be OFF and its file closed, with REAL selected, no
+active lap/movement/alarm or other format. Formatting deletes all files and SD
+best references; successful completion clears the in-memory best reference.
+`sd format` only prints confirmation instructions. The destructive terminal
+command is `sd format ERASE-ALL-FILES`; do not run it as a read-only check.
+The new synthetic tests exercise confirmation and guards without erasing data.
+
 A dated reference needs a valid, fresh GNSS date/time and fix, with two
 consistent local-date epochs. Invalid calendar dates are rejected. Without
 one it is explicitly an undated SESSION reference; it is not saved as a daily
@@ -467,6 +480,27 @@ a simulated failure (`set logging off`, `set logging on`).
 Bike axes: +X forward, +Y left, +Z up; acceleration in g, gyro in deg/s.
 Rotation rows are these bike axes expressed in sensor coordinates, determinant
 +1. Gyro bias, the full rotation and user lean zero are separate quantities.
+
+The current menu uses `CALIBRATION > IMU CALIBRATE` or terminal `imu calibrate`.
+Follow UPRIGHT, LEFT, RIGHT prompts; press GREEN with direction CENTER (or
+`imu next`) once the bike is in each requested pose. Each capture needs two
+seconds; an OK is shown before the next instruction. Tilts can differ, 5..70
+degrees each, on opposite sides of the same roll plane. The full rotation and
+upright gyro bias are saved only after all three poses pass; old user zero is
+then reset. RED OFF or `imu cancel` preserves the previous calibration.
+
+The stability window permits gyro RMS noise up to 3 deg/s, acceleration-norm
+standard deviation up to 0.06 g, and up to 3 degrees of smoothed orientation
+drift. Mean rotation after the upright bias capture must stay below 3 deg/s;
+upright capture permits mean gyro bias up to 8 deg/s. Mean gravity must be
+within 0.18 g of 1 g. At least 60 samples and two seconds of continuous data
+are required; gaps over 120 ms restart capture. Failed windows retry.
+
+`selftest storage-imu` runs only new synthetic SD/IMU assertions; it never
+formats a card or writes NVS. Without a board, the same C++ tests run via
+`python tools/test_storage_imu.py` with a host C++ compiler (see script).
+
+Legacy manual commands remain available for diagnostics:
 
 1. Bike upright and stationary: `imu upright`, remain still for two seconds.
 2. Lean a known modest amount LEFT (10..70 degrees), stationary: `imu left`.

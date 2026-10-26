@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <initializer_list>
 #include "track_catalog.h"
+#include "sd_view.h"
 
 namespace Control {
 inline bool expired(uint32_t now, uint32_t since, uint32_t duration) { return uint32_t(now - since) >= duration; }
@@ -161,12 +162,13 @@ struct Source { Session session; Pressure pressure[2]; Alarm alarms[2][2]; uint3
 enum Menu : unsigned { DefaultScreen, Quick1, Quick2, Quick3, Background, SpeedUnit, PressureUnit, TemperatureUnit, AccelUnit, Track,
   LapHold, DeltaStep, AlarmEnabled, FrontRange, RearRange, Hysteresis, ConfirmTime,
   SensorTimeout, FrontId, RearId, ImuUpright, ImuLeft, ImuForward, ImuZero,
-  TimeOffset, Logging, SdStatus, Back, MenuCount };
+  TimeOffset, Logging, SdStatus, Back, SdFiles, SdFormat, ImuWizard, MenuCount };
+constexpr unsigned ImuWizardNext=1001;
 inline const char* menuName(unsigned item) {
   static const char* names[] = {"DEFAULT SCREEN","GREEN 1","GREEN 2","GREEN 3","BACKGROUND","SPEED UNIT","PRESSURE UNIT","TEMPERATURE UNIT","ACCEL UNIT",
     "TRACK","LAP HOLD","DELTA PER SEGMENT","PRESSURE ALARM","FRONT MIN/MAX","REAR MIN/MAX","HYSTERESIS",
     "ALARM CONFIRM","SENSOR TIMEOUT","FRONT SENSOR ID","REAR SENSOR ID","IMU UPRIGHT","IMU LEFT",
-    "IMU FORWARD","IMU ZERO","UTC OFFSET","SD LOGGING","SD STATUS","NAZAJ"};
+    "IMU FORWARD","IMU ZERO","UTC OFFSET","SD LOGGING","SD STATUS","NAZAJ","SD FILES","FORMAT SD","IMU CALIBRATE"};
   return item < MenuCount ? names[item] : "?";
 }
 enum class Category : uint8_t { Display, Calibration, Units, Track, Tpms, Storage, Back, Count };
@@ -176,22 +178,22 @@ inline const char* categoryName(unsigned category){
 }
 inline unsigned categoryItem(unsigned category,unsigned row){
   static const unsigned display[]={DefaultScreen,Quick1,Quick2,Quick3,Background,LapHold,DeltaStep,Back};
-  static const unsigned calibration[]={ImuUpright,ImuLeft,ImuForward,ImuZero,Back};
+  static const unsigned calibration[]={ImuWizard,ImuZero,Back};
   static const unsigned units[]={SpeedUnit,PressureUnit,TemperatureUnit,AccelUnit,TimeOffset,Back};
   static const unsigned track[]={Track,Back};
   static const unsigned tpms[]={AlarmEnabled,FrontRange,RearRange,Hysteresis,ConfirmTime,SensorTimeout,FrontId,RearId,Back};
-  static const unsigned storage[]={Logging,SdStatus,Back};
+  static const unsigned storage[]={Logging,SdStatus,SdFiles,SdFormat,Back};
   switch(Category(category)){
     case Category::Display:return row<8?display[row]:Back;
-    case Category::Calibration:return row<5?calibration[row]:Back;
+    case Category::Calibration:return row<3?calibration[row]:Back;
     case Category::Units:return row<6?units[row]:Back;
     case Category::Track:return row<2?track[row]:Back;
     case Category::Tpms:return row<9?tpms[row]:Back;
-    case Category::Storage:return row<3?storage[row]:Back;
+    case Category::Storage:return row<5?storage[row]:Back;
     default:return Back;
   }
 }
-inline unsigned categorySize(unsigned category){static const unsigned sizes[]={8,5,6,2,9,3,1};return category<7?sizes[category]:1;}
+inline unsigned categorySize(unsigned category){static const unsigned sizes[]={8,3,6,2,9,5,1};return category<7?sizes[category]:1;}
 class Model {
  public:
   Config config, draft;
@@ -205,7 +207,28 @@ class Model {
   int direction = 0;
   uint32_t quickAt = 0, testOffset = 0, day = 0, geometry = 0, rejected = 0;
   unsigned action = 0;  // UI adapter consumes calibration/SD actions.
+  unsigned specialPage=0,fileCursor=0,fileFirst=0,formatChoice=0;
+  bool filesLoading=false,sdBusy=false,sdFormatDone=false,sdFormatOk=false;
+  uint32_t fileRequest=0;Sd::Page filePage;
   char error[96] = "";
+  unsigned fileRowCount()const{return filePage.count+(fileFirst?1:0)+(fileFirst+filePage.count<filePage.total?1:0)+1;}
+  void fileRowLabel(unsigned row,char* out,size_t size)const{
+    if(row<filePage.count){const char* path=filePage.entries[row].name;const char* name=std::strrchr(path,'/');std::snprintf(out,size,"%s",name?name+1:path);return;}
+    row-=filePage.count;
+    if(fileFirst){if(row==0){std::snprintf(out,size,"PREVIOUS PAGE");return;}--row;}
+    if(fileFirst+filePage.count<filePage.total){if(row==0){std::snprintf(out,size,"NEXT PAGE");return;}--row;}
+    std::snprintf(out,size,"BACK");
+  }
+  void specialSelect(){
+    if(specialPage==ImuWizard){action=ImuWizardNext;return;}
+    if(specialPage==SdFormat){if(!sdBusy)specialPage=0;return;}
+    if(specialPage!=SdFiles||filesLoading)return;
+    if(fileCursor<filePage.count)return;
+    unsigned row=fileCursor-filePage.count;
+    if(fileFirst){if(row==0){fileFirst=fileFirst>=Sd::Page::capacity?fileFirst-Sd::Page::capacity:0;filesLoading=true;action=SdFiles;return;}--row;}
+    if(fileFirst+filePage.count<filePage.total){if(row==0){fileFirst+=Sd::Page::capacity;filesLoading=true;action=SdFiles;return;}--row;}
+    specialPage=0;
+  }
   unsigned treeCount()const{return menuDepth?categorySize(menuCategory):unsigned(Category::Count);}
   const char* treeLabel(unsigned row)const{
     if(!menuDepth)return categoryName(row);
@@ -213,9 +236,10 @@ class Model {
   }
   void openTree(uint32_t actual){
     input(Input::SettingsOn,actual);treeMenu=true;menuDepth=menuCategory=menuRow=0;
-    menuConfirmed=false;editing=false;menu=DefaultScreen;error[0]=0;
+    menuConfirmed=false;editing=false;specialPage=0;menu=DefaultScreen;error[0]=0;
   }
   void treeShort(uint32_t actual){
+    if(specialPage){specialSelect();return;}
     if(editing){treeLong(actual);return;}
     if(!menuDepth){
       if(menuRow==unsigned(Category::Back)){settingsSuppressed=true;base=Base::Race;quickActive=false;source().session.hold=false;return;}
@@ -225,10 +249,16 @@ class Model {
     menuConfirmed=false;error[0]=0;(void)actual;
   }
   void treeLong(uint32_t actual){
+    if(specialPage){specialSelect();return;}
     if(!menuDepth||menu==Back){treeShort(actual);return;}
-    if(!editing){draft=config;draftForwardAxis=forwardAxis;editing=true;rangePart=0;editRow=choiceIndex(draft);menuConfirmed=false;error[0]=0;return;}
+    if(!editing&&(menu==SdFiles||menu==ImuWizard)){
+      specialPage=menu;action=menu;menuConfirmed=false;error[0]=0;
+      if(menu==SdFiles){fileFirst=fileCursor=0;filesLoading=true;}return;
+    }
+    if(!editing){draft=config;draftForwardAxis=forwardAxis;formatChoice=0;editing=true;rangePart=0;editRow=choiceIndex(draft);menuConfirmed=false;error[0]=0;return;}
     if(choiceCount() && editRow==choiceCount()){editing=false;menuConfirmed=false;error[0]=0;return;}
     if((menu==FrontRange||menu==RearRange)&&rangePart++==0)return;
+    if(menu==SdFormat){editing=false;menuConfirmed=false;if(editRow==1){action=SdFormat;specialPage=SdFormat;sdFormatDone=false;}return;}
     if((menu>=ImuUpright&&menu<=ImuZero)||menu==SdStatus){if(menu==ImuForward)forwardAxis=draftForwardAxis;action=menu;editing=false;menuConfirmed=true;return;}
     if(commit(draft))menuConfirmed=true;
   }
@@ -237,7 +267,7 @@ class Model {
   }
   unsigned choiceCount()const{
     switch(menu){
-      case DefaultScreen:case SpeedUnit:case TemperatureUnit:case AccelUnit:case AlarmEnabled:case Logging:return 2;
+      case DefaultScreen:case SpeedUnit:case TemperatureUnit:case AccelUnit:case AlarmEnabled:case Logging:case SdFormat:return 2;
       case FrontId:return config.frontId[0]&&std::strcmp(config.frontId,"SIM-F")?3:2;
       case RearId:return config.rearId[0]&&std::strcmp(config.rearId,"SIM-R")?3:2;
       case Quick1:case Quick2:case Quick3:return unsigned(QuickPage::Count);
@@ -278,6 +308,7 @@ class Model {
       case FrontId:label=row==2?config.frontId:row?"SIM-F":"UNASSIGNED";break;
       case RearId:label=row==2?config.rearId:row?"SIM-R":"UNASSIGNED";break;
       case ImuForward:{static const char* names[]={"X+","X-","Y+","Y-","Z+","Z-"};label=names[row%6];break;}
+      case SdFormat:label=row?"ERASE ALL FILES":"NO - KEEP FILES";break;
       default:break;
     }
     std::snprintf(out,size,"%s",label);
@@ -291,7 +322,9 @@ class Model {
       case DeltaStep:draft.deltaIndex=row;break;case AlarmEnabled:draft.pressureAlarm=row;break;case Logging:draft.logging=row;break;
       case FrontId:std::snprintf(draft.frontId,sizeof(draft.frontId),"%s",row==2?config.frontId:row?"SIM-F":"");break;
       case RearId:std::snprintf(draft.rearId,sizeof(draft.rearId),"%s",row==2?config.rearId:row?"SIM-R":"");break;
-      case ImuForward:draftForwardAxis=row;break;default:break;
+      case ImuForward:draftForwardAxis=row;break;
+      case SdFormat:formatChoice=row;break;
+      default:break;
     }
   }
   void numericValue(char* out,size_t size)const{
@@ -344,7 +377,7 @@ class Model {
       if (!settingsOn) { settingsOn = true; settingsSuppressed = false; editing = false; menu = 0; treeMenu=false;menuConfirmed=false; }
       return;
     }
-    if (event == Input::SettingsOff) { settingsOn = false; settingsSuppressed = false; editing = false; treeMenu=false;menuConfirmed=false;return; }
+    if (event == Input::SettingsOff) { settingsOn = false; settingsSuppressed = false; editing = false; treeMenu=false;menuConfirmed=false;specialPage=0;return; }
     if (event == Input::Center) { direction = 0; return; }
     if (event == Input::Left || event == Input::Right) {
       const int next = event == Input::Left ? -1 : 1;
@@ -352,7 +385,8 @@ class Model {
       if (!edge) return;
       if (settingsOn && !settingsSuppressed) {
         menuConfirmed=false;error[0]=0;
-        if (editing && treeMenu && choiceCount()){
+        if(specialPage){if(specialPage==SdFiles&&!filesLoading)fileCursor=(fileCursor+fileRowCount()+next)%fileRowCount();}
+        else if (editing && treeMenu && choiceCount()){
           editRow=(editRow+choiceCount()+1+next)%(choiceCount()+1);
           if(editRow<choiceCount())setChoice(editRow);
         }else if (editing) adjust(next);

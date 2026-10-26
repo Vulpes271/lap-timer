@@ -33,6 +33,8 @@ class TerminalApp {
   float (*leanZero)()=nullptr;
   void (*selftest)()=nullptr;
   void (*calibrationChanged)()=nullptr;
+  void (*storageChanged)()=nullptr;
+  void (*storageImuSelftest)()=nullptr;
   bool (*reloadReference)()=nullptr;
   void quick(uint32_t pressedAt) {
     legacyView=false;
@@ -70,6 +72,31 @@ class TerminalApp {
       }
       else if(action==Control::ImuZero && zeroImu){if(!zeroImu()){std::snprintf(model.error,sizeof(model.error),"ZERO REJECTED: CALIBRATE AND HOLD STILL");model.menuConfirmed=false;}}
       else if(action==Control::SdStatus)status();
+      else if(action==Control::SdFiles)requestFiles();
+      else if(action==Control::SdFormat)requestFormat();
+      else if(action==Control::ImuWizard){
+        if(!model.testMode&&!motionBlocked()&&model.settingsOn&&!model.settingsSuppressed)imu.guided.begin();
+        else {model.specialPage=0;std::snprintf(model.error,sizeof(model.error),"STOP MOTOR / USE REAL MODE");}
+      }else if(action==Control::ImuWizardNext){
+        if(imu.guided.stage==Imu::GuidedCalibration::Done||imu.guided.stage==Imu::GuidedCalibration::Failed){imu.guided.cancel();model.specialPage=0;}
+        else imu.guided.advance();
+      }
+    }
+    if(model.filesLoading&&logger.getFilePage(model.filePage)&&model.filePage.generation==model.fileRequest){model.filesLoading=false;model.fileCursor=0;}
+    const uint32_t formatted=logger.formatGeneration.load();
+    if(formatted!=lastFormatGeneration){
+      lastFormatGeneration=formatted;model.sdBusy=false;model.sdFormatDone=true;model.sdFormatOk=logger.formatOk;
+      if(logger.formatOk){model.real.session.best=Control::Reference();if(storageChanged)storageChanged();if(model.config.logging)startLog();}
+      else std::snprintf(model.error,sizeof(model.error),"FORMAT FAILED - CHECK SD CARD");
+    }
+    if(imu.guided.active()){
+      if(model.specialPage!=Control::ImuWizard||!model.settingsOn||model.settingsSuppressed||model.unacknowledged()||motionBlocked()){
+        imu.guided.cancel();if(model.specialPage==Control::ImuWizard)model.specialPage=0;
+      }else if(imu.guided.stage==Imu::GuidedCalibration::SaveReady){
+        const bool saved=Imu::save(imu.guided.candidate);
+        if(saved){imu.installCalibration(imu.guided.candidate);if(calibrationChanged)calibrationChanged();}
+        imu.guided.saved(saved);Serial.printf("IMU GUIDED: %s\n",saved?"SAVED":"SAVE FAILED - previous calibration active");
+      }
     }
     if(imu.message[0] && std::strcmp(lastImuMessage,imu.message)){
       Serial.printf("IMU: %s\n",imu.message);std::snprintf(lastImuMessage,sizeof(lastImuMessage),"%s",imu.message);
@@ -136,7 +163,7 @@ class TerminalApp {
         fresh?"FRESH":"SENSOR LOST",bar,temperature,battery,age,
         model.source().alarms[i][0].active,model.source().alarms[i][0].acknowledged,model.source().alarms[i][1].active,model.source().alarms[i][1].acknowledged);
     }
-    Serial.printf("SD mounted=%u active=%u file=%s rows=%lu dropped=%lu errors=%lu max_us=%lu; IMU=%s, roll=%.2f, long_g=%.4f, imu_dropped=%lu\n",logger.ready,logger.active,logger.path,
+    Serial.printf("SD mounted=%u active=%u file=%s rows=%lu dropped=%lu errors=%lu max_us=%lu; IMU=%s, roll=%.2f, long_g=%.4f, imu_dropped=%lu\n",logger.ready.load(),logger.active,logger.path,
       (unsigned long)logger.written,(unsigned long)logger.dropped,(unsigned long)logger.errors,(unsigned long)logger.maxWriteUs,imu.quality,imu.rollDegrees(),imu.longitudinalG,(unsigned long)rawImuDrops);
     if(model.settingsOn){char value[96];model.menuValue(model.menu,model.editing?model.draft:c,value,sizeof(value));Serial.printf("MENU %s %s = %s\n",model.editing?"EDIT":"SELECT",Control::menuName(model.menu),value);}
   }
@@ -150,6 +177,7 @@ class TerminalApp {
     if(equal(words[0],"help") && count==1){help();return;}
     if(equal(words[0],"status") && count==1){status();return;}
     if(equal(words[0],"selftest") && count==1){if(selftest)selftest();return;}
+    if(equal(words[0],"selftest")&&count==2&&equal(words[1],"storage-imu")){if(storageImuSelftest)storageImuSelftest();return;}
     if(equal(words[0],"legacy") && count==2 && equal(words[1],"on")){legacyImmediate=true;Serial.println("OK immediate legacy mode; ! returns line mode");return;}
     if(equal(words[0],"verbose") && count==2 && onOff(words[1],verbose)){Serial.printf("OK verbose=%u\n",verbose);return;}
     bool ok=false;error[0]=0;
@@ -189,7 +217,11 @@ class TerminalApp {
       if(equal(words[1],"readback")){logger.diagnostic();ok=logger.ready;}
       if(equal(words[1],"selftest")){logger.testReference();ok=logger.ready;}
       if(equal(words[1],"inspect")){logger.inspect();ok=logger.ready;}
-    }else if(equal(words[0],"reference") && count==2 && equal(words[1],"reload")){ok=reloadReference&&reloadReference();}
+      if(equal(words[1],"files")){model.fileFirst=0;ok=requestFiles();}
+      if(equal(words[1],"format")){Serial.println("SD FORMAT: deletes every file; stop logging, then explicitly type sd format ERASE-ALL-FILES");ok=true;}
+    }else if(equal(words[0],"sd")&&count==3&&equal(words[1],"format")&&equal(words[2],"ERASE-ALL-FILES")){ok=requestFormat();}
+    else if(equal(words[0],"sd")&&count==3&&equal(words[1],"files")){double first=0;if(number(words[2],first)&&first>=0&&first<=1000000&&std::floor(first)==first){model.fileFirst=unsigned(first);ok=requestFiles();}}
+    else if(equal(words[0],"reference") && count==2 && equal(words[1],"reload")){ok=reloadReference&&reloadReference();}
     else if(equal(words[0],"imu")){ok=imuCommand(words,count);}
     if(ok){legacyView=false;model.poll(millis());if(model.dirty)apply();recordState();Serial.printf("OK source=%s view=%u settings=%u editing=%u menu=%u\n",model.testMode?"TEST":"REAL",unsigned(model.view(millis())),model.settingsOn,model.editing,model.menu);}
     else Serial.printf("ERR %s\n",error[0]?error:model.error[0]?model.error:"unknown command, invalid argument or TEST OFF; enter help");
@@ -215,6 +247,23 @@ class TerminalApp {
     logger.event(model.testMode,model.time(millis()),"QUICK_SETTINGS",metadata);
   }
  private:
+  uint32_t lastFormatGeneration=0;
+  bool motionBlocked()const{return panelMotion.lapRunning||(panelMotion.speedFresh&&std::isfinite(panelMotion.speedKmh)&&panelMotion.speedKmh>5);}
+  bool requestFiles(){
+    ++model.fileRequest;model.fileCursor=0;model.filesLoading=true;
+    if(logger.listFiles(model.fileFirst,model.fileRequest))return true;
+    model.filesLoading=false;model.filePage=Sd::Page();
+    std::snprintf(model.filePage.message,sizeof(model.filePage.message),"SD UNAVAILABLE / BUSY");return false;
+  }
+  bool requestFormat(){
+    if(logger.formatting.load()){std::snprintf(model.error,sizeof(model.error),"FORMAT ALREADY IN PROGRESS");return false;}
+    if(!Sd::formatAllowed(model.testMode,model.config.logging,logger.active,motionBlocked(),model.unacknowledged(),logger.formatting.load())){
+      std::snprintf(model.error,sizeof(model.error),"STOP LOGGING / MOTOR; USE REAL MODE");model.sdBusy=false;model.sdFormatDone=true;model.sdFormatOk=false;return false;
+    }
+    model.sdBusy=logger.formatCard();model.sdFormatDone=!model.sdBusy;model.sdFormatOk=false;
+    if(!model.sdBusy)std::snprintf(model.error,sizeof(model.error),"SD FORMAT REQUEST FAILED");else model.error[0]=0;
+    return model.sdBusy;
+  }
   TerminalReader reader;Control::Config applied;
   char error[96]="",lastImuMessage[96]="";
   uint32_t previousAlarms=0,previousSensors=0;
@@ -306,9 +355,15 @@ class TerminalApp {
     return false;
   }
   bool imuCommand(char** w,unsigned n){
-    if(n==2 && equal(w[1],"status")){Serial.printf("IMU %s: %s\n",imu.quality,imu.message);return true;}
+    if(n==2 && equal(w[1],"status")){Serial.printf("IMU %s: %s\nGUIDED stage=%u progress=%u drift=%.2f gyro_noise=%.3f accel_noise=%.4f %s\n",imu.quality,imu.message,unsigned(imu.guided.stage),imu.guided.window.percent(),imu.guided.window.driftDegrees,imu.guided.window.gyroNoise,imu.guided.window.accelNoise,imu.guided.detail);return true;}
     if(n==2 && equal(w[1],"upright")){imu.startCapture(1);return true;}
     if(n==2 && equal(w[1],"left")){imu.startCapture(2);return true;}
+    if(n==2 && equal(w[1],"calibrate")){
+      if(model.testMode||motionBlocked())return false;
+      model.openTree(millis());model.menuDepth=1;model.menuCategory=unsigned(Control::Category::Calibration);model.menu=Control::ImuWizard;model.menuRow=0;model.specialPage=Control::ImuWizard;imu.guided.begin();return true;
+    }
+    if(n==2 && equal(w[1],"next")){if(!imu.guided.active())return false;imu.guided.advance();return true;}
+    if(n==2 && equal(w[1],"cancel")){imu.guided.cancel();if(model.specialPage==Control::ImuWizard)model.specialPage=0;return true;}
     if(n==2 && equal(w[1],"zero"))return zeroImu&&zeroImu();
     Imu::Vec x,y,z;
     if(n==3 && equal(w[1],"forward") && Imu::axis(w[2],x)){const bool ok=imu.forward(x);if(ok&&calibrationChanged)calibrationChanged();return ok;}
@@ -317,7 +372,7 @@ class TerminalApp {
   }
   static void help(){Serial.println(
     "TERMINAL v1 - every command ends with Enter, USB 115200\n"
-    "help | status | selftest | verbose on/off | legacy on (! exits)\n"
+    "help | status | selftest | selftest storage-imu (only new SD/IMU tests) | verbose on/off | legacy on (! exits)\n"
     "key green/quick/left/right | switch settings on/off | switch direction left/center/right (direct diagnostic)\n"
     "button red on/off | button green down/up | button direction left/center/right (guarded panel)\n"
     "screen race/camera | settings show/reload\n"
@@ -332,7 +387,8 @@ class TerminalApp {
     "test on/off/reset | test pressure front/rear BAR | test sensor front/rear lost\n"
     "test lap MILLISECONDS | test sector 1/2 CUMULATIVE_MS | test tick MILLISECONDS\n"
     "test motion ANGLE_DEG SPEED_KMH ACCEL_G (isolated simulated maxima)\n"
-    "test sd fail/slow/normal | sd status/readback/selftest/inspect | reference reload\n"
+    "test sd fail/slow/normal | sd status/readback/selftest/inspect | sd files [FIRST_INDEX] | sd format | reference reload\n"
+    "imu calibrate | imu next | imu cancel (guided upright, left, right)\n"
     "imu upright | imu left | imu forward x+/x-/y+/y-/z+/z- | imu mount x+ y+ z+ | imu zero/status\n"
     "Legacy one-letter commands t,v,n,s,q,b,k,g,z,c,r,p also require Enter.\n"
     "TEST is isolated; TPMS BLE is not connected; IMU dynamic estimate is EXPERIMENTAL.");}

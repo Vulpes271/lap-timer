@@ -2,8 +2,33 @@
 
 Upravljanje: **zeleni gumb** (trenutna tipka GPIO32), **rdeči gumb**
 (zaskočni kontakt GPIO5) in **stikalo levo/desno** (GPIO34/GPIO35).
-Zeleni je glavni gumb za prikaze, izbiro in potrjevanje. Terminal ostaja na voljo;
-BLE TPMS povezava še ni preverjena.
+Zeleni je glavni gumb za prikaze, izbiro in potrjevanje. Terminal ostaja na voljo.
+BLE sprejem TPMS še ni implementiran; pripravljena sta podatkovni vmesnik in simulator.
+
+## Pregled trenutne implementacije
+
+| Področje | Kaj je implementirano |
+| --- | --- |
+| GPS | NEO-6 prek UART, nastavitev 5 Hz, položaj, hitrost, smer, UTC, sateliti in zaznavanje izgube signala. |
+| Merjenje krogov | Prehod startno-ciljne črte v določeni smeri, časovna interpolacija med meritvama GPS, štetje krogov, trije sektorji in primerjava z najboljšim krogom. |
+| Dirkališča | Katalog in izbira proge v nastavitvah; trenutno Pomposa Long. Izvor trase in projektni sektorski meji sta opisana spodaj. |
+| Zasloni | RACE in CAMERA s časom, tlaki, statusom GPS/SD, nagibnim barom in tremi primerjalnimi okvirji na vsaki strani; CAMERA doda hitrost. Ločeni veliki prikazi zadnjega/najboljšega kroga, tlakov in maksimumov. |
+| Upravljanje | Zeleni in rdeči gumb ter stikalo levo/desno, zaščiten vstop v nastavitve, večstopenjski meniji, ločeni izbori, ponavljanje številčnih vrednosti ob držanju in nastavljivi trije hitri prikazi. |
+| Nastavitve | DISPLAY, CALIBRATION, UNITS, TRACK, TPMS in STORAGE; tri ozadja, enote, meje tlakov, čas prikaza kroga in nastavitve beleženja. Potrjene nastavitve se ohranijo v NVS. |
+| IMU | Neodvisen zajem pri nominalno 50 Hz, surovi nagib pred kalibracijo, vodena kalibracija pokonci/levo/desno za poljubno zasukano montažo, odmik giroskopa in ločena ničla nagiba. Dinamična ocena ostaja eksperimentalna. |
+| SD | CSV za REAL in TEST v ločenih imenikih, zapisovalna naloga z vrsto in števci napak, shranjevanje dnevne reference BEST, seznam datotek z velikostmi ter formatiranje FAT32 z izrecno potrditvijo. |
+| Tlaki | Vmesnik za oba senzorja, izolirani testni podatki, alarmi LOW/HIGH, histereza, potrditev in zaznavanje zastarelih meritev. Dejanski senzorji BLE še niso povezani. |
+| Terminal in diagnostika | Ukazi za prikaze, nastavitve, simulacijo gumbov/senzorjev in diagnostiko GPS/IMU/SD; ločeni testi timinga, krmiljenja ter novih SD/IMU funkcij. |
+
+**Stanje preverjanja:** zadnje spremembe SD/IMU so prevedene za ESP32 in imajo
+35 uspešnih ciljnih preverjanj na računalniku. Na ploščico še niso naložene,
+ker pri zadnjem preverjanju USB ni bilo zaznanega COM priključka. Spodaj navedeni
+strojni rezultati veljajo za predhodno naloženo različico. Dejanskega formatiranja
+kartice in nove kalibracije na motorju še nismo izvedli.
+
+Interpolacija trenutno uporablja meritve GPS; vključitev pospeška IMU v izračun
+trenutka prečkanja črte še ni implementirana. Prav tako niso implementirani
+sprejem senzorjev BLE TPMS in merjenje baterije; zanju je na zaslonu predviden prostor.
 
 Navodila, vsi ukazi in rocni preizkusi:
 **[docs/codex_terminal_test.md](docs/codex_terminal_test.md)**.
@@ -43,7 +68,7 @@ Samodejni integracijski preizkus na ploscici (obnovi uporabnikove nastavitve):
 .\.venv\Scripts\python.exe tools/test_terminal.py --port COM4
 ```
 
-Različica z ločenimi izbori in smerjo + zelenim je naložena na COM4:
+Predhodna različica z ločenimi izbori in smerjo + zelenim je bila naložena na COM4:
 **20/20 testov timinga in 139/139 testov krmiljenja** je uspešnih. Na ploščici je
 izmerjen dvig tlaka za **2,00 bar v 4,08 s**, brez shranjevanja preizkusne spremembe.
 Terminalski preizkus je preveril 19 scenarijev do vključno izbora barv in ponavljanja
@@ -66,8 +91,9 @@ nastavljive prek SPEED/PRESSURE/TEMPERATURE/ACCEL UNIT. Nastavitve se shranijo
 v NVS v4, stari zapis v3 se samodejno prenese. Maksimumi so za trenutno sejo;
 brez veljavnih meritev je `--`. Podrobnosti in ukazi so v terminalskem vodicu.
 
-- Skupni dogodki QUICK, SETTINGS ON/OFF in LEFT/CENTER/RIGHT. Drzano stanje
-  ne ponavlja dogodkov; potrjene in validirane nastavitve so v verzioniranem NVS.
+- Skupni dogodki QUICK, SETTINGS ON/OFF in LEFT/CENTER/RIGHT, odpravljanje odboja
+  kontaktov in nadzorovano ponavljanje številčnih vrednosti; potrjene in validirane
+  nastavitve so v verzioniranem NVS.
 - RACE, CAMERA, LAST LAP, FRONT/REAR PRESSURE, petsekundni hitri pregledi,
   LAP HOLD 5..15 s in zelen BEST. Menjava zaslona ne ustavi merjenja ali SD.
 - Trije sektorji Pomposa Long z GPS UTC interpolacijo. Dnevni BEST je celoten
@@ -177,8 +203,9 @@ Meni uporablja velike tiskane črke in seznam s petimi vidnimi vrsticami.
 Izbrana vrstica je rdeča, potrjena nastavitev pa zelena do naslednjega premika.
 Prvi razdelki so **DISPLAY, CALIBRATION, UNITS**, sledijo TRACK, TPMS, STORAGE in
 BACK. V DISPLAY so osnovni zaslon, GREEN 1/2/3, ozadje in prikaz kroga/delte;
-CALIBRATION vsebuje UPRIGHT, LEFT, FORWARD in ZERO. FORWARD omogoča izbiro osi
-X+/X-/Y+/Y-/Z+/Z- pred potrditvijo. Posamezna nastavitev odpre **novo stran**:
+CALIBRATION vsebuje IMU CALIBRATE za voden postopek pokonci/levo/desno ter IMU ZERO
+za ločeno nastavitev ničle. Ročna izbira osi ostaja dosegljiva prek starih
+terminalskih ukazov za diagnostiko. Posamezna nastavitev odpre **novo stran**:
 na primer BACKGROUND pokaže BLACK, WHITE, DARK BLUE in BACK z velikimi črkami.
 Izbrana možnost je rdeča, shranjena zelena. Zeleni v sredini potrdi in vrne na
 prejšnji seznam; BACK v izboru zavrže osnutek. Številke imajo svojo stran z veliko
@@ -248,6 +275,58 @@ projektni tretjini prenesene trase, ne uradni AiM tocki. Ujemanje s trenutno
 Solo 2 konfiguracijo ni potrjeno. [Izvor in geometrija](tracks/pomposa_long.json).
 Ponovljiv uvoz: `python tools/import_aim_pomposa.py`; aktualna geometrija ostane
 v generiranem `include/pomposa_track.h`, katalog pa v `include/track_catalog.h`.
+
+## SD datoteke in vodena kalibracija IMU
+
+V `SETUP > STORAGE > SD FILES` so imena datotek in velikosti. Seznam ima
+po pet datotek ter `NEXT PAGE`, `PREVIOUS PAGE` in `BACK`. Pregleda korenski
+imenik in do tri nivoje podimenikov. Pregled poteka postopoma med zapisi CSV.
+Z levo/desno in zelenim gumbom izbereš vrstico, na sredini jo potrdiš.
+
+`SETUP > STORAGE > FORMAT SD` najprej ponudi `NO - KEEP FILES`.
+Samo izrecna izbira `ERASE ALL FILES` formatira kartico v FAT32 in izbriše
+vse datoteke, tudi shranjene reference najboljših krogov. Pred tem izklopi
+`LOGGING`; motor mora mirovati, brez aktivnega kroga ali alarma, v načinu REAL.
+Med formatiranjem ne odklapljaj napajanja. Običajen zagon kartice ne formatira.
+
+`SETUP > CALIBRATION > IMU CALIBRATE` vodi skozi tri položaje:
+
+1. Motor postavi pokonci v želeno ničelno lego in na sredini pritisni zeleni gumb.
+2. Po meritvi in napisu `OK` motor nagni **levo za vsaj 5°** in znova potrdi.
+3. Po naslednjem `OK` ga nagni **desno za vsaj 5°** in potrdi.
+
+Pri vsakem položaju meri dve sekundi. Dopušča manjši šum; preverja spremembo
+smeri gravitacije, raztros pospeška in giroskopa ter vrtenje glede na izmerjeni
+odmik giroskopa. Ob premikanju meritev ponavlja. Nagiba sta lahko različno velika,
+do 70°, vendar morata biti na nasprotnih straneh iste ravnine nagibanja.
+Iz treh položajev določi osi motorja tudi pri zasukanem senzorju. Šele uspešno
+zaključen celoten postopek shrani kalibracijo in novo ničlo. Rdeči gumb OFF
+prekine postopek in ohrani dosedanjo kalibracijo. Postopek izvajaj brez delovanja
+motorja; vibracije delujočega motorja niso namen tega preverjanja mirovanja.
+
+Terminalski ukazi (vsakemu sledi Enter):
+
+```text
+sd files
+sd files 5
+sd format
+imu calibrate
+imu next
+imu status
+imu cancel
+selftest storage-imu
+```
+
+`sd format` samo izpiše navodilo za izrecno potrditev; sam ne briše.
+`imu next` začne meritev trenutnega položaja; naslednjega začneš šele, ko motor
+postaviš po novem navodilu. `selftest storage-imu` preverja samo novo logiko
+SD/IMU s sintetičnimi meritvami. Ne briše kartice in ne shrani kalibracije.
+Dejansko formatiranje in fizična kalibracija ostajata ločena ročna preizkusa.
+
+Preverjanje te spremembe: prevod ESP32 uspešen (flash 719054 B / 54,9 %,
+statični RAM 52840 B / 16,1 %); novih 35 SD/IMU preverjanj C++ na računalniku
+uspešnih, brez brisanja kartice ali zapisov NVS. Starih testnih sklopov nismo
+ponavljali. Nalaganje in fizično preverjanje še čakata na USB povezavo ploščice.
 
 ## Omejitve
 

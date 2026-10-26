@@ -2,32 +2,9 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include "control_model.h"
+#include "imu_calibration.h"
 
 namespace Imu {
-struct Vec {
-  double x=0,y=0,z=0;
-  Vec()=default;Vec(double a,double b,double c):x(a),y(b),z(c){}
-  Vec operator+(Vec v) const{return {x+v.x,y+v.y,z+v.z};}
-  Vec operator-(Vec v) const{return {x-v.x,y-v.y,z-v.z};}
-  Vec operator*(double a) const{return {x*a,y*a,z*a};}
-  double dot(Vec v) const{return x*v.x+y*v.y+z*v.z;}
-  Vec cross(Vec v)const{return {y*v.z-z*v.y,z*v.x-x*v.z,x*v.y-y*v.x};}
-  double norm()const{return std::sqrt(dot(*this));}
-  Vec unit()const{const double n=norm();return n>1e-9?*this*(1/n):Vec();}
-};
-struct Calibration {
-  uint32_t version=1;
-  Vec axes[3]={{1,0,0},{0,1,0},{0,0,1}};
-  Vec bias;
-  bool verified=false;
-  bool valid()const{
-    for(const auto& a:axes)if(!std::isfinite(a.x)||!std::isfinite(a.y)||!std::isfinite(a.z)||std::fabs(a.norm()-1)>.01)return false;
-    return version==1 && std::fabs(axes[0].dot(axes[1]))<.01 && std::fabs(axes[0].dot(axes[2]))<.01 &&
-      std::fabs(axes[1].dot(axes[2]))<.01 && axes[0].cross(axes[1]).dot(axes[2])>.99 &&
-      std::isfinite(bias.norm()) && bias.norm()<20;
-  }
-  Vec rotate(Vec v)const{return {axes[0].dot(v),axes[1].dot(v),axes[2].dot(v)};}
-};
 inline bool save(const Calibration& c){
   if(!c.valid())return false;
   Preferences p;if(!p.begin("lap-imu",false))return false;
@@ -39,10 +16,10 @@ inline bool load(Calibration& c){
   bool ok=p.getBytesLength("rotation")==sizeof(next)&&p.getBytes("rotation",&next,sizeof(next))==sizeof(next)&&
     p.getUInt("hash",0)==Control::hashBytes(&next,sizeof(next))&&next.valid();p.end();if(ok)c=next;return ok;
 }
-struct Sample {uint32_t us=0,ms=0;Vec accel,gyro;bool valid=false;};
 class Estimate {
  public:
   Calibration calibration;
+  GuidedCalibration guided;
   double roll=0,pitch=0,longitudinalG=0;
   double rawRoll=0;
   bool rawRollValid=false;
@@ -82,6 +59,7 @@ class Estimate {
   }
   void process(const Sample& sample){
     at=sample.ms;
+    guided.process(sample);
     if(!sample.valid){valid=false;rawRollValid=false;quality="IMU LOST";return;}
     capture(sample);
     const Vec a=calibration.rotate(sample.accel),g=calibration.rotate(sample.gyro-calibration.bias);
@@ -119,6 +97,7 @@ class Estimate {
     quality=!valid?"UNCALIBRATED experimental":aid?"GNSS APPROX experimental":staticAid?"STATIC experimental":"GYRO ONLY experimental";
   }
   double rollDegrees()const{return roll*57.29577951308232;}
+  void installCalibration(const Calibration& next){calibration=next;initialized=false;previousUs=0;valid=false;}
   bool displayAngle(uint32_t now,double zero,double& degrees,bool& raw)const{
     raw=false;
     if(uint32_t(now-at)>=150)return false;

@@ -185,7 +185,7 @@ class Dashboard {
     const bool minimal=minimalView(view);
     // Selection/edit changes update buffered rows; they must not clear the screen.
     const int key=int(view)+(model.testMode?10000:0)+(view==View::Settings?100+model.treeMenu+(model.editing?1000:0):0)+
-      model.config.theme*100000+model.config.pressure*1000000+model.config.speed*3000000+model.config.accel*6000000;
+      (view==View::Settings&&model.specialPage?2000+model.specialPage*10:0)+model.config.theme*100000+model.config.pressure*1000000+model.config.speed*3000000+model.config.accel*6000000;
     if(controlPage!=key){
       if(view==View::Race||view==View::Camera){selectScreen(DashboardScreen::LapTimer);}
       else {
@@ -215,7 +215,35 @@ class Dashboard {
     char text[96]="";int x=16,y=64,width=448,height=26,font=4,size=1;uint8_t datum=TL_DATUM;bool degree=false;
     uint16_t color=view==View::Best?TFT_BLACK:view==View::Alarm?TFT_WHITE:foreground;
     const auto& config=model.config;const auto& source=model.source();const auto& session=source.session;
-    if(view==View::Settings && model.treeMenu && model.editing){
+    if(view==View::Settings && model.specialPage==ImuWizard){
+      const auto& wizard=imu.guided;
+      y=42+region*42;height=36;font=2;
+      if(region==0){std::snprintf(text,sizeof(text),"%s",wizard.title());font=4;}
+      else if(region==1){std::snprintf(text,sizeof(text),"%s",wizard.instruction());color=wizard.stage==Imu::GuidedCalibration::Done||wizard.stage==Imu::GuidedCalibration::UprightOk||wizard.stage==Imu::GuidedCalibration::LeftOk||wizard.stage==Imu::GuidedCalibration::RightOk?TFT_GREEN:foreground;}
+      else if(region==2){if(wizard.measuring())std::snprintf(text,sizeof(text),"MEASURING  %u %%",wizard.window.percent());font=4;}
+      else if(region==3){std::snprintf(text,sizeof(text),"%s",wizard.detail);color=warning;}
+      else if(region==4){if(wizard.measuring())std::snprintf(text,sizeof(text),"STABILITY WINDOW: 2 SECONDS");color=muted;}
+      else{std::snprintf(text,sizeof(text),"CENTER + GREEN: MEASURE / BACK | RED OFF: EXIT");y=286;height=18;color=muted;}
+    }else if(view==View::Settings && model.specialPage==SdFiles){
+      const unsigned first=model.fileCursor<5?0:model.fileCursor-4;
+      if(region==0){std::snprintf(text,sizeof(text),model.filesLoading?"READING SD...":"SD FILES: %u",model.filePage.total);y=40;height=22;font=2;}
+      else if(region<=5){
+        const unsigned row=first+region-1;char label[128]="";
+        if(!model.filesLoading&&row<model.fileRowCount()){model.fileRowLabel(row,label,sizeof(label));std::snprintf(text,sizeof(text),"%s %.82s",row==model.fileCursor?">":" ",label);}
+        y=72+(region-1)*34;height=30;font=2;color=row==model.fileCursor?TFT_RED:foreground;
+      }else if(region==6){
+        y=246;height=28;font=2;color=muted;
+        if(!model.filesLoading){if(model.fileCursor<model.filePage.count)std::snprintf(text,sizeof(text),"%lu BYTES",(unsigned long)model.filePage.entries[model.fileCursor].bytes);
+        else std::snprintf(text,sizeof(text),"%s",model.filePage.message);}
+      }else{y=286;height=18;font=2;color=muted;std::snprintf(text,sizeof(text),"LEFT / RIGHT + GREEN: MOVE | CENTER: SELECT");}
+    }else if(view==View::Settings && model.specialPage==SdFormat){
+      y=48+region*42;height=34;font=4;
+      if(region==0)std::snprintf(text,sizeof(text),"FORMAT SD");
+      else if(region==1){std::snprintf(text,sizeof(text),"%s",model.sdBusy?"FORMATTING...":model.sdFormatOk?"FORMAT OK":"FORMAT FAILED");color=model.sdFormatOk?TFT_GREEN:TFT_RED;}
+      else if(region==2){font=2;std::snprintf(text,sizeof(text),"%s",model.sdBusy?"DO NOT REMOVE CARD OR POWER":"");}
+      else if(region==3){font=2;std::snprintf(text,sizeof(text),"%s",model.error);color=TFT_RED;}
+      else if(region==5){font=2;y=286;height=18;std::snprintf(text,sizeof(text),"%s",model.sdBusy?"PLEASE WAIT":"CENTER + GREEN: BACK");}
+    }else if(view==View::Settings && model.treeMenu && model.editing){
       const unsigned options=model.choiceCount();
       const uint16_t savedColor=config.theme==1?TFT_DARKGREEN:TFT_GREEN;
       if(region==0){
@@ -230,6 +258,7 @@ class Dashboard {
         }else if(region==6){
           y=255;height=22;font=2;color=model.error[0]?TFT_RED:muted;
           if(model.error[0])std::snprintf(text,sizeof(text),"%s",model.error);
+          else if(model.menu==SdFormat){std::snprintf(text,sizeof(text),"ERASE ALL FILES DELETES THE ENTIRE CARD");color=TFT_RED;}
           else {char label[64];model.choiceLabel(model.choiceIndex(config),label,sizeof(label));std::snprintf(text,sizeof(text),"SAVED: %s",label);}
         }else{y=288;height=18;font=2;color=muted;std::snprintf(text,sizeof(text),"CENTER + GREEN: SELECT | BACK: CANCEL");}
       }else{
@@ -309,7 +338,7 @@ class Dashboard {
       drawBufferedText(text,x,y,width,height,font,size,color,previousColors[region],datum,degree);
       std::snprintf(previous[region],sizeof(previous[region]),"%s",text);previousColors[region]=color;
     }
-    const unsigned count=minimal?2:view==View::Settings?(model.treeMenu&&(!model.editing||model.choiceCount())?8:6):3;
+    const unsigned count=minimal?2:view==View::Settings?(model.specialPage?(model.specialPage==SdFiles?8:6):model.treeMenu&&(!model.editing||model.choiceCount())?8:6):3;
     region=(region+1)%count;
   }
 

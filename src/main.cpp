@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <TinyGPS++.h>
 #include <Wire.h>
-#include <SD.h>
+#include "sd_card.h"
 #include <SPI.h>
 #include "gps_config.h"
 #include "dashboard.h"
@@ -13,6 +13,7 @@
 #include "timing_selftest.h"
 #include "terminal_app.h"
 #include "control_selftest.h"
+#include "storage_imu_selftest.h"
 #include "quick_button.h"
 
 namespace {
@@ -104,10 +105,10 @@ void beginLog() {
   bool available = false;
   for (unsigned int index = 0; index < 10000; ++index) {
     snprintf(logPath, sizeof(logPath), "/gps%04u.csv", index);
-    if (!SD.exists(logPath)) { available = true; break; }
+    if (!Sd::card().exists(logPath)) { available = true; break; }
   }
   if (!available) { Serial.println("SD LOG: ni prostega imena datoteke."); return; }
-  File file = SD.open(logPath, FILE_WRITE);
+  File file = Sd::card().open(logPath, FILE_WRITE);
   const char* header = "seq,esp_ms,gps_utc_ms,fix,lat,lon,satellites,imu_ok,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n";
   if (!file) { ++logErrors; return; }
   const bool ok = file.print(header) == strlen(header);
@@ -148,7 +149,7 @@ void logGpsEpoch(uint32_t utc, uint32_t receivedAt, bool currentFix) {
   File file;
   size_t offset = 0;
   if (ok) {
-    file = SD.open(logPath, FILE_APPEND);
+    file = Sd::card().open(logPath, FILE_APPEND);
     ok = static_cast<bool>(file);
   }
   if (ok) {
@@ -157,7 +158,7 @@ void logGpsEpoch(uint32_t utc, uint32_t receivedAt, bool currentFix) {
   }
   if (file) file.close();  // Commit data and file size before readback.
   if (ok) {
-    file = SD.open(logPath, FILE_READ);
+    file = Sd::card().open(logPath, FILE_READ);
     char readback[256];
     ok = file && file.seek(offset) &&
          file.read(reinterpret_cast<uint8_t*>(readback), length) == static_cast<size_t>(length) &&
@@ -178,30 +179,30 @@ void detectSd() {
   Serial.println("SD: CS=13, MOSI=15, MISO=2, SCK=14; SPI=1 MHz.");
   sdSpi.begin(14, 2, 15, 13);
   // Disable automatic formatting; preserve all existing card contents.
-  if (!SD.begin(13, sdSpi, 1000000, "/sd", 5, false)) {
+  if (!Sd::card().begin(13, sdSpi, 1000000, "/sd", 8, false)) {
     Serial.println("SD: priklop datotecnega sistema ni uspel. Preveri kartico, povezave in format.");
     return;
   }
-  const uint8_t type = SD.cardType();
+  const uint8_t type = Sd::card().cardType();
   if (type == CARD_NONE) {
     Serial.println("SD: kartica ni zaznana.");
-    SD.end();
+    Sd::card().end();
     return;
   }
   const char* name = type == CARD_MMC ? "MMC" : type == CARD_SD ? "SDSC" :
                      type == CARD_SDHC ? "SDHC/SDXC" : "neznan tip";
   Serial.printf("SD: %s | kapaciteta=%llu MiB | datotecni sistem=%llu MiB | zasedeno=%llu MiB\n",
-                name, SD.cardSize() / (1024ULL * 1024),
-                SD.totalBytes() / (1024ULL * 1024), SD.usedBytes() / (1024ULL * 1024));
-  File root = SD.open("/", FILE_READ);
+                name, Sd::card().cardSize() / (1024ULL * 1024),
+                Sd::card().totalBytes() / (1024ULL * 1024), Sd::card().usedBytes() / (1024ULL * 1024));
+  File root = Sd::card().open("/", FILE_READ);
   uint8_t sector[512];
   const bool rootOk = root && root.isDirectory();
-  const bool sectorOk = SD.readRAW(sector, 0);
+  const bool sectorOk = Sd::card().readRAW(sector, 0);
   if (root) root.close();
   sdReady = rootOk && sectorOk;
   // Cache filesystem usage; do not scan the card inside the display loop.
-  const uint64_t total = SD.totalBytes();
-  const uint64_t used = SD.usedBytes();
+  const uint64_t total = Sd::card().totalBytes();
+  const uint64_t used = Sd::card().usedBytes();
   sdUsageValid = sdReady && total > 0;
   if (sdUsageValid) sdUsedPercent = static_cast<uint8_t>(min(100ULL, used * 100ULL / total));
   Serial.printf("SD: korenski imenik=%s, branje sektorja=%s.\n",
@@ -467,7 +468,7 @@ void updateDashboard() {
   data.missed = missedGpsEpochs; data.checksumErrors = gps.failedChecksum();
   data.epochMs = data.gpsOnline ? ggaEpochInterval : 0;
   data.maxLogUs = app.logger.maxWriteUs;
-  data.sdUsageValid = sdUsageValid;
+  data.sdUsageValid = sdUsageValid && app.logger.ready.load();
   data.sdUsedPercent = sdUsedPercent;
   data.lapTimeMs = lapTimer.elapsedMs(now);
   data.lapNumber = lapTimer.lapNumber();
@@ -533,6 +534,11 @@ void setup() {
   app.legacy=legacyCommand;app.zeroImu=zeroLean;app.changeTrack=selectTrack;
   app.leanZero=[](){return deviceSettings.leanZeroDegrees;};
   app.selftest=[](){runTimingSelfTests(Serial);runControlSelfTests(Serial);};
+  app.storageImuSelftest=[](){runStorageImuSelfTests(Serial);};
+  app.storageChanged=[](){
+    sdReady=app.logger.ready.load();sdUsageValid=app.logger.formattedUsageValid;sdUsedPercent=app.logger.formattedUsedPercent;
+    const double sectors[3]={0,0,0};lapTimer.loadReference(0,sectors);
+  };
   app.calibrationChanged=[](){deviceSettings.setLeanZero(0);app.model.clearImuMaxima();if(app.model.config.logging){app.logger.stop();app.startLog();}};
   app.reloadReference=[](){if(lapTimer.running()||app.model.testMode||!app.model.day){Serial.println("REFERENCE: requires REAL, stopped and valid GNSS day");return false;}reloadDailyReference();return true;};
   app.begin(sdReady);
