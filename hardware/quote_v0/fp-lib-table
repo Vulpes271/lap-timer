@@ -1,0 +1,4 @@
+(fp_lib_table
+ (version 7)
+ (lib (name "QuoteFootprints")(type "KiCad")(uri "${KIPRJMOD}/QuoteFootprints.pretty")(options "")(descr "Bundled placement candidates, not verified land patterns"))
+)

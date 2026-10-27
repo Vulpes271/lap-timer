@@ -1,0 +1,35 @@
+Reference,Candidate,Footprint,X_mm_from_left,Y_mm_from_top,Rotation,MPN,LCSC,Status
+H1,M3 candidate,MountingHole:MountingHole_3.2mm_M3,4,4,0,,,PLACEMENT ONLY - NOT APPROVED
+H2,M3 candidate,MountingHole:MountingHole_3.2mm_M3,76,4,0,,,PLACEMENT ONLY - NOT APPROVED
+H3,M3 candidate,MountingHole:MountingHole_3.2mm_M3,4,61,0,,,PLACEMENT ONLY - NOT APPROVED
+H4,M3 candidate,MountingHole:MountingHole_3.2mm_M3,76,61,0,,,PLACEMENT ONLY - NOT APPROVED
+U1,ESP32-S3-WROOM-1-N8R8,RF_Module:ESP32-S3-WROOM-1,32,13,0,ESP32-S3-WROOM-1-N8R8,C2913201,PLACEMENT ONLY - NOT APPROVED
+U2,ICM-42688-P CANDIDATE,Package_LGA:LGA-14_3x2.5mm_P0.5mm_LayoutBorder3x4y,43,28,0,ICM-42688-P,C1850418,PLACEMENT ONLY - NOT APPROVED
+J1,USB-C CANDIDATE,Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-12,8,50,90,TYPE-C-31-M-12,,PLACEMENT ONLY - NOT APPROVED
+J2,GNSS MODULE HEADER,Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical,70,15,0,TBD - verify QUESCAN pinout,,PLACEMENT ONLY - NOT APPROVED
+J3,CC1101 MODULE HEADER,Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical,56,11,90,TBD - verify CC1101 board,,PLACEMENT ONLY - NOT APPROVED
+J4,TFT HEADER,Connector_PinHeader_2.54mm:PinHeader_1x10_P2.54mm_Vertical,38,50,90,TBD - verify display pinout,,PLACEMENT ONLY - NOT APPROVED
+J5,HANDLEBAR HEADER,Connector_PinHeader_2.54mm:PinHeader_1x07_P2.54mm_Vertical,75,39,0,TBD - verify switch wiring,,PLACEMENT ONLY - NOT APPROVED
+J6,POWER IN CANDIDATE,Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical,6,36,0,TBD - rated locking connector,,PLACEMENT ONLY - NOT APPROVED
+J7,BATTERY CANDIDATE,Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical,15,36,0,TBD - battery polarity unconfirmed,,PLACEMENT ONLY - NOT APPROVED
+J8,MICROSD CANDIDATE,Connector_Card:microSD_HC_Hirose_DM3AT-SF-PEJM5,55,35,0,DM3AT-SF-PEJM5,,PLACEMENT ONLY - NOT APPROVED
+C1,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,19,32,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C2,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,22,32,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C3,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,25,32,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C4,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,28,32,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C5,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,31,32,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C6,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,34,32,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C7,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,19,35,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C8,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,22,35,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C9,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,25,35,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C10,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,28,35,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C11,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,31,35,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+C12,100nF QUOTE CANDIDATE,Capacitor_SMD:C_0603_1608Metric,34,35,0,TBD - capacitance/voltage after schematic,,PLACEMENT ONLY - NOT APPROVED
+R1,10k QUOTE CANDIDATE,Resistor_SMD:R_0603_1608Metric,36,38,0,TBD - value after schematic,,PLACEMENT ONLY - NOT APPROVED
+R2,10k QUOTE CANDIDATE,Resistor_SMD:R_0603_1608Metric,39,38,0,TBD - value after schematic,,PLACEMENT ONLY - NOT APPROVED
+R3,10k QUOTE CANDIDATE,Resistor_SMD:R_0603_1608Metric,42,38,0,TBD - value after schematic,,PLACEMENT ONLY - NOT APPROVED
+R4,10k QUOTE CANDIDATE,Resistor_SMD:R_0603_1608Metric,45,38,0,TBD - value after schematic,,PLACEMENT ONLY - NOT APPROVED
+R5,10k QUOTE CANDIDATE,Resistor_SMD:R_0603_1608Metric,36,41,0,TBD - value after schematic,,PLACEMENT ONLY - NOT APPROVED
+R6,10k QUOTE CANDIDATE,Resistor_SMD:R_0603_1608Metric,39,41,0,TBD - value after schematic,,PLACEMENT ONLY - NOT APPROVED
+R7,10k QUOTE CANDIDATE,Resistor_SMD:R_0603_1608Metric,42,41,0,TBD - value after schematic,,PLACEMENT ONLY - NOT APPROVED
+R8,10k QUOTE CANDIDATE,Resistor_SMD:R_0603_1608Metric,45,41,0,TBD - value after schematic,,PLACEMENT ONLY - NOT APPROVED

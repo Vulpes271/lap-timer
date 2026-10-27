@@ -1,0 +1,17 @@
+{
+  "native_CAD": "KiCad 7.0.11",
+  "pcb_load": "success",
+  "schematic_svg_export": "success",
+  "gerber_export": "success",
+  "excellon_export": "success",
+  "layers": 4,
+  "board_outline_mm": [
+    80,
+    65
+  ],
+  "footprints": 34,
+  "routed_tracks": 0,
+  "electrical_schematic": "NOT IMPLEMENTED; architecture graphics only",
+  "electrical_ERC_DRC": "NOT APPROVED; this is not a production design",
+  "assembly_BOM_CPL": "PARTIAL QUOTE ONLY: U1/U2; remaining components excluded; NOT approved for manufacturing"
+}

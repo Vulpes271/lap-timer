@@ -1,0 +1,22 @@
+Item,Known_LCSC,Quantity,Budget_EUR_per_unit,Status
+ESP32-S3-WROOM-1-N8R8,C2913201,1,6,ON PCB candidate
+ICM-42688-P,C1850418,1,3,ON PCB candidate; package verify
+QUESCAN TU10-F + baseboard + antenna,,1,16,OFF BOARD - user supplier price
+CC1101 complete 433 MHz module + antenna,,1,5,OFF BOARD - protocol unconfirmed
+MicroSD socket,,1,1,ON PCB candidate
+MicroSD card,,1,6,OFF BOARD
+12V converter + input protection,,1,7,TBD - not placed/designed
+3.3V regulator/support,,1,1.5,TBD - not placed/designed
+Charger and power path,,1,4,TBD - not placed/designed
+Battery converter if needed,,1,2.5,TBD - depends on display
+Battery measurement,,1,2,TBD - not placed/designed
+Protected battery,,1,8,OFF BOARD
+USB-C and ESD support,,1,1.5,Candidate + missing design
+Connectors/wiring,,1,4,TBD pinouts/locking parts
+"Remaining passives, service switches, LEDs",,1,3,ALLOWANCE - not complete BOM
+SPI display 480x320,,1,20,EXISTING / OPTIONAL BUY
+Handlebar switch,,1,10,EXISTING / OPTIONAL BUY
+Case/gasket/screws,,1,20,Mechanical TBD
+Mount,,1,10,Mechanical TBD
+External TPMS test kit,,1,10,OPTIONAL; not internal TPMS
+TOTAL budget including optional test TPMS,,1,140.5,EXCLUDES PCB/PCBA/shipping/import
