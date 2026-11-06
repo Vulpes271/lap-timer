@@ -18,6 +18,7 @@ class LapTimer {
  public:
   explicit LapTimer(const TrackConfig& track) : track_(track) {}
   bool running() const { return running_; }
+  Event interrupt() { return breakContinuity(); }
   unsigned int lapNumber() const { return completed_ + (running_ ? 1 : 0); }
   unsigned int completedLaps() const { return completed_; }
   double lastLapMs() const { return lastLapMs_; }

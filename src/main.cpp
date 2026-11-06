@@ -17,6 +17,7 @@
 #include "storage_imu_selftest.h"
 #endif
 #include "quick_button.h"
+#include "phone_link.h"
 
 namespace {
 // NEO TX -> ESP32 RX19; NEO RX -> ESP32 TX4.
@@ -25,6 +26,7 @@ constexpr uint32_t REPORT_MS = 2000;
 DeviceSettings deviceSettings;
 TerminalApp app;
 PanelButtons panelButtons;
+PhoneLink phoneLink;
 QueueHandle_t imuSamples=nullptr;
 std::atomic<uint32_t> imuSampleDrops{0};
 Timing::LapTimer lapTimer(Tracks::PomposaLong);
@@ -153,10 +155,15 @@ void trackGga(TinyGPSCustom& timeField, TinyGPSCustom& qualityField) {
   const Timing::Fix timingFix = {usable ? gps.location.lat() : 0, usable ? gps.location.lng() : 0,
       epoch, now, usable ? gps.speed.kmph() : 0, usable ? gps.hdop.hdop() : 0,
       usable ? static_cast<unsigned int>(gps.satellites.value()) : 0, usable};
+  if (!app.model.testMode && phoneLink.observe(timingFix,app.model.day,app.model.geometry,lapTimer.track().name)) {
+    // An out-lap after a pit stop must not finish the preceding session's partial lap.
+    if (lapTimer.interrupt()==Timing::Event::Interrupted) app.onTiming(Timing::Event::Interrupted,lapTimer,now);
+  }
   app.model.observeSpeed(false,timingFix.speedKmh,usable&&timingFix.satellites>=4&&timingFix.hdop>0&&timingFix.hdop<=3);
   if(dailyReferencePending)reloadDailyReference();
   const Timing::Event timingEvent = dailyReferencePending?Timing::Event::None:lapTimer.process(timingFix);
   app.onTiming(timingEvent,lapTimer,now);
+  if (!app.model.testMode) phoneLink.timing(timingEvent,lapTimer);
   app.imu.navigation(epoch,now,usable?gps.speed.kmph():0,
     gps.course.isValid()?gps.course.deg():0,usable && gps.course.isValid() && gps.course.age()<500);
   if(app.model.config.logging && !app.model.testMode){
@@ -394,6 +401,7 @@ void setup() {
   app.calibrationChanged=[](){deviceSettings.setLeanZero(0);app.model.clearImuMaxima();if(app.model.config.logging){app.logger.stop();app.startLog();}};
   app.reloadReference=[](){if(lapTimer.running()||app.model.testMode||!app.model.day){Serial.println("REFERENCE: requires REAL, stopped and valid GNSS day");return false;}reloadDailyReference();return true;};
   app.begin(sdReady);
+  phoneLink.begin();
   const bool panelReady=panelButtons.begin();
   app.panelState=panelButtons.initial;app.panel.begin(app.panelState,millis());
   Serial.printf("PANEL: GREEN=32 RED=5 LEFT=34 RIGHT=35, contacts to GND, external 10k to 3.3V on 34/35, task=%s\n",
@@ -436,6 +444,7 @@ void loop() {
   }
   while(panelButtons.pop(panelFrame))app.panelInput(panelFrame.state,panelFrame.at);
   app.poll();
+  phoneLink.poll(millis());
   if (app.verbose && millis() - lastReport >= REPORT_MS) {
     lastReport = millis();
     reportGps();

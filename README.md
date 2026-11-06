@@ -1,5 +1,12 @@
 # ESP32 lap timer
 
+## Android povezava
+
+Aplikacija v `race/app` ima nov prikaz **Časi z naprave · Wi-Fi** z izbiro dneva,
+samodejno oštevilčenih voženj ter časov krogov in treh sektorjev. Korenski firmware
+ponudi Wi-Fi po 30 sekundah mirovanja znotraj 2 metrov. Za prvo povezavo in navodila
+za nalaganje glej [povezavo s telefonom](docs/phone_connection.md).
+
 Merilnik krogov z GPS NEO-6, IMU MPU6500/9250, zaslonom SPI 480 × 320,
 kartico SD in fizičnimi gumbi. Običajna različica vsebuje vse funkcije merjenja,
 prikaza, nastavitev in beleženja. Simulator in samodejni testi so v ločeni
