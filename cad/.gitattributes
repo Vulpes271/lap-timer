@@ -1,0 +1,2 @@
+# Preserve CAD interchange bytes and omit generated STEP records from text diffs.
+*.step -text -diff

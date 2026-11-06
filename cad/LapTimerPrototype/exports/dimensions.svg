@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650">
+<rect width="1100" height="650" fill="#f8fafc"/>
+<style>text{font-family:Arial,sans-serif;fill:#172b3a} .small{font-size:14px}.title{font-size:24px;font-weight:bold}.dim{stroke:#34495e;stroke-width:1;fill:none}.outline{stroke:#173c50;stroke-width:2;fill:none}</style>
+<text class="title" x="55" y="38">Lap timer — PETG prototype v1</text>
+<text class="small" x="55" y="62">All dimensions mm. Custom M6 tilt interface; not GoPro compatible.</text>
+<rect x="65.0" y="66.0" width="360.0" height="324.0" fill="#d9e9ef" stroke="#173c50" stroke-width="1.5" stroke-dasharray=""/>
+<rect x="97.55000000000001" y="198.0" width="294.9" height="168.0" fill="none" stroke="#6f8390" stroke-width="1.5" stroke-dasharray="5 4"/>
+<rect x="119.89999999999999" y="198.89999999999998" width="250.20000000000002" height="166.2" fill="#338099" stroke="#173c50" stroke-width="1.5" stroke-dasharray=""/>
+<rect x="192.5" y="84.0" width="105.0" height="105.0" fill="#f0dfb9" stroke="#173c50" stroke-width="1.5" stroke-dasharray=""/>
+<circle cx="105.5" cy="357.0" r="5.1" fill="white" stroke="#173c50"/>
+<circle cx="105.5" cy="207.0" r="5.1" fill="white" stroke="#173c50"/>
+<circle cx="384.5" cy="357.0" r="5.1" fill="white" stroke="#173c50"/>
+<circle cx="384.5" cy="207.0" r="5.1" fill="white" stroke="#173c50"/>
+<rect x="199.10000000000002" y="390.0" width="24.0" height="93.0" fill="#6c8998" stroke="#173c50" stroke-width="1.5" stroke-dasharray=""/>
+<rect x="266.9" y="390.0" width="24.0" height="93.0" fill="#6c8998" stroke="#173c50" stroke-width="1.5" stroke-dasharray=""/>
+<line class="dim" x1="176.0" y1="444.0" x2="314.0" y2="444.0"/>
+<text x="75" y="517" font-size="14">Front view: X left/right, Y bottom/top</text>
+<line class="dim" x1="65" y1="95" x2="425.0" y2="95"/>
+<line class="dim" x1="65" y1="89" x2="65" y2="101"/>
+<line class="dim" x1="425.0" y1="89" x2="425.0" y2="101"/>
+<text x="225.0" y="86" font-size="16">120</text>
+<line class="dim" x1="105.5" y1="530" x2="384.5" y2="530"/>
+<line class="dim" x1="105.5" y1="524" x2="105.5" y2="536"/>
+<line class="dim" x1="384.5" y1="524" x2="384.5" y2="536"/>
+<text x="225.0" y="521" font-size="16">93 hole pitch</text>
+<text x="475" y="120" font-size="20">Housing: 120 × 108 × 55</text>
+<text x="475" y="150" font-size="17">Overall height including hinge: 139</text>
+<text x="475" y="185" font-size="17">Display: 98.3 × 56; holes 93 × 50</text>
+<text x="475" y="212" font-size="17">Window 83.4 × 55.4 — centered assumed</text>
+<text x="475" y="239" font-size="17">Antenna pocket: 35 × 35 × 6.7 envelope</text>
+<text x="475" y="287" font-size="20">Interface for your separate motorcycle base</text>
+<text x="475" y="321" font-size="17">M6 bolt axis runs left–right (X).</text>
+<text x="475" y="349" font-size="17">Ear 8 + gap 14.6 + ear 8 = 30.6 total</text>
+<text x="475" y="377" font-size="17">Your tongue: 14 thick, round end Ø26, bore Ø6.4</text>
+<text x="475" y="405" font-size="17">Axis: 18 below housing; 26 from rear face</text>
+<text x="475" y="433" font-size="17">M6 nut pocket: 10.3 across flats × 5 deep</text>
+<text x="475" y="484" font-size="17">Print the small tongue gauge before the whole housing.</text>
+<text x="475" y="516" font-size="16">The motorcycle base and its attachment are not included.</text>
+<text x="55" y="608" font-size="15">Nominal dimensions; no structural or vibration validation. See README before printing.</text>
+</svg>

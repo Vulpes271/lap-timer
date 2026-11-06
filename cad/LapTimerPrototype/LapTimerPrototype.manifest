@@ -1,0 +1,9 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "script",
+  "author": "Lap Timer project",
+  "description": {"": "PETG lap-timer enclosure, editable native sketches, M6 tilt hinge."},
+  "supportedOS": "windows|mac",
+  "version": "1.0.0",
+  "runOnStartup": false
+}

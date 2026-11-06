@@ -1,0 +1,138 @@
+{
+  "build_blender.py": {
+    "bytes": 9463,
+    "sha256": "cb36158bc5fe8630befee7a984d1c4ddaadc7393e3725975e6c4c1e87baaa059"
+  },
+  "build_cad.py": {
+    "bytes": 7067,
+    "sha256": "32146c959571a9c60d6afbd320257be7e1dd7ada561bf1dd15d28bc282f1b564"
+  },
+  "exports/01_Housing.step": {
+    "bytes": 261261,
+    "sha256": "79d0b63255e71302cea832efb50dd3b27e5a32464470b7c58f3f347996d952ea"
+  },
+  "exports/01_Housing.stl": {
+    "bytes": 485884,
+    "sha256": "c0369c4ccb717e65cf0cb0819cff8bf6e69519d3df33619908c630281aaef3e2"
+  },
+  "exports/02_Front_bezel.step": {
+    "bytes": 104250,
+    "sha256": "930ce669f59e28f98bed24f87f725c22a2daf82714551193614dd6e541fe18aa"
+  },
+  "exports/02_Front_bezel.stl": {
+    "bytes": 207284,
+    "sha256": "563056c39d120a8a1e74b7d80bea89e9b50a84e92d10f18efce5b2491275c149"
+  },
+  "exports/03_Electronics_carrier.step": {
+    "bytes": 344332,
+    "sha256": "a6e02010ce76e0dc59671b420b40b206ebdbc50659a196c61b0058a478a53f20"
+  },
+  "exports/03_Electronics_carrier.stl": {
+    "bytes": 314184,
+    "sha256": "458fed636b6cab5ac75dfb9b6591613a440af6413000abad63b91bb7922f9122"
+  },
+  "exports/04_Hinge_tongue_fit_gauge.step": {
+    "bytes": 19854,
+    "sha256": "4a510eba7fff6d064bc9c444a7eead08076886a8ea68cf370d6346beaa801a9a"
+  },
+  "exports/04_Hinge_tongue_fit_gauge.stl": {
+    "bytes": 38484,
+    "sha256": "d8eb9cddd79ced5b883a57b9b1519f6c3fa857987106317630242f1c7bbcde21"
+  },
+  "exports/05_Display_spacer_2mm.step": {
+    "bytes": 9313,
+    "sha256": "e3b1ed6138e984b95191e563e4aba0e9af80de59de4a8fcc609f8f4a4e9114e3"
+  },
+  "exports/05_Display_spacer_2mm.stl": {
+    "bytes": 50484,
+    "sha256": "137eae47fbfa89e714667b7aaca3b38caed3660e133d62765aa079e3c24f8302"
+  },
+  "exports/05_Display_spacer_4mm.step": {
+    "bytes": 9313,
+    "sha256": "a9fc5d2232d546f0b6595aa3ba59812ef1909da86c55e574bfb74dfb5ca20710"
+  },
+  "exports/05_Display_spacer_4mm.stl": {
+    "bytes": 50484,
+    "sha256": "2c3b3cc8fa82b61c4821fcb9ebda66df9c75ef36deb419010c330f613c266219"
+  },
+  "exports/05_Display_spacer_6mm.step": {
+    "bytes": 9313,
+    "sha256": "79204d4b3dc1c75bc30ba6ed6cafb33bf1d0d2b483a85557fa7f4b33e77a922a"
+  },
+  "exports/05_Display_spacer_6mm.stl": {
+    "bytes": 50484,
+    "sha256": "17ebce6e3c87da6414e4bfccca685d7c5c0a72b5aa90f57b5b71c4a3d42f675c"
+  },
+  "exports/Component_envelopes_NOT_FOR_PRINT.step": {
+    "bytes": 100135,
+    "sha256": "9dab54f00d9afd10b2d2619de10a4b0c2c085a4880c24d92724c75e6ee3f289e"
+  },
+  "exports/dimensions.svg": {
+    "bytes": 3538,
+    "sha256": "ca1c197396615d67f2414168a8d56b055db6376f42b17bcb5dd9df19789011f7"
+  },
+  "exports/LapTimer_assembled.step": {
+    "bytes": 728354,
+    "sha256": "068005d084e9641066f6ef2cdd057c1bb9befc3c26cf4ede9340e947cf959577"
+  },
+  "exports/LapTimer_exploded.step": {
+    "bytes": 727011,
+    "sha256": "dea8df3b6d6a69c30489936a69c13d5d051c24c0a323820cf0617d5726288d8f"
+  },
+  "exports/LapTimer_preview.blend": {
+    "bytes": 530162,
+    "sha256": "a5e1921edf882c6cf6f5400c93bbe893e328aa12fa13745c318350a10db2b0fe"
+  },
+  "exports/mesh_validation.json": {
+    "bytes": 1831,
+    "sha256": "56d2f936df874400abc58c98b736d293c35d1bac4acd13a2d80b9587dfecf02f"
+  },
+  "exports/preview_assembled.png": {
+    "bytes": 1483583,
+    "sha256": "f15c105838dd00e9311c7635eb0a94b847846bc10bddccbf8e87fca06919283e"
+  },
+  "exports/preview_bezel_back.png": {
+    "bytes": 1334898,
+    "sha256": "e2d8a1354fe75e4ee2a4b5df5fde0eaa7e4782cd2dbae5c01ec11b2244e032ed"
+  },
+  "exports/preview_exploded.png": {
+    "bytes": 1470408,
+    "sha256": "9f520e2b133d1445fa8baa9db207527065ced73dc52b02f96943df44028fb7f6"
+  },
+  "exports/preview_inside.png": {
+    "bytes": 1547501,
+    "sha256": "8a89127e140e38885f6eefdba53b68ce65e5080db28f64f64e4e4955f5df85e4"
+  },
+  "exports/validation.json": {
+    "bytes": 4917,
+    "sha256": "e70ff0216dcb1f36f82b7e3da2a9225f3e804b3c9dfa14764e5ee1b8b5a3530f"
+  },
+  "geometry.py": {
+    "bytes": 9471,
+    "sha256": "aea92ccf547fe60e0e65d72d9902f7cf6c300c21e03b38c2250c863c3c99f9bc"
+  },
+  "LapTimerPrototype.manifest": {
+    "bytes": 262,
+    "sha256": "889915888ccfafbfbff1a1d3688b38f851cee136b530ca1896c2497f001beb0f"
+  },
+  "LapTimerPrototype.py": {
+    "bytes": 10592,
+    "sha256": "dca505b7ce80d9cd88cccb9c6ff1e970b8b0d7015ded402fb9493556a16ca673"
+  },
+  "make_drawing.py": {
+    "bytes": 3487,
+    "sha256": "32c313264304f02a3b7b2e26f4a9cfb443a2acd5b545beab33c3c4318058df71"
+  },
+  "package_model.py": {
+    "bytes": 1837,
+    "sha256": "82c628d5dbe42cf04a09a270372e683ec7e73e890b30cdd977944f04927a2a6e"
+  },
+  "parameters.json": {
+    "bytes": 1108,
+    "sha256": "b66535935f0cda7688496352223514baf5b0cd28375867b6c2e064c1a5da8ee0"
+  },
+  "README.md": {
+    "bytes": 8944,
+    "sha256": "d9c76453c573b27917770ac01d50f58e1cc134642019e4a1b1074d760b4598b3"
+  }
+}

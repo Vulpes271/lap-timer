@@ -1,0 +1,89 @@
+{
+  "backend": "CadQuery/OCP; final binary STL edge incidence and connectivity",
+  "parts": {
+    "01_Housing": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 9716,
+      "volume_cm3": 121.122,
+      "size_mm": [
+        120.0,
+        139.0,
+        52.003
+      ]
+    },
+    "02_Front_bezel": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 4144,
+      "volume_cm3": 28.586,
+      "size_mm": [
+        120.0,
+        108.0,
+        12.001
+      ]
+    },
+    "03_Electronics_carrier": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 6282,
+      "volume_cm3": 29.97,
+      "size_mm": [
+        106.0,
+        94.0,
+        6.002
+      ]
+    },
+    "04_Hinge_tongue_fit_gauge": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 768,
+      "volume_cm3": 11.274,
+      "size_mm": [
+        14.008,
+        35.0,
+        26.008
+      ]
+    },
+    "05_Display_spacer_2mm": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 1008,
+      "volume_cm3": 0.059,
+      "size_mm": [
+        7.002,
+        7.0,
+        2.002
+      ]
+    },
+    "05_Display_spacer_4mm": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 1008,
+      "volume_cm3": 0.118,
+      "size_mm": [
+        7.002,
+        7.0,
+        4.002
+      ]
+    },
+    "05_Display_spacer_6mm": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 1008,
+      "volume_cm3": 0.176,
+      "size_mm": [
+        7.002,
+        7.0,
+        6.002
+      ]
+    }
+  }
+}

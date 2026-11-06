@@ -1,0 +1,190 @@
+{
+  "parameters_mm": {
+    "case_w": 120.0,
+    "case_h": 108.0,
+    "case_d": 52.0,
+    "wall": 3.0,
+    "lid_t": 3.0,
+    "screen_w": 98.3,
+    "screen_h": 56.0,
+    "screen_d": 23.0,
+    "screen_y": 8.0,
+    "screen_pitch_x": 93.0,
+    "screen_pitch_y": 50.0,
+    "window_w": 83.4,
+    "window_h": 55.4,
+    "screen_bolt": 3.4,
+    "case_pilot": 2.7,
+    "carrier_z": 6.0,
+    "carrier_t": 3.0,
+    "board_standoff": 3.0,
+    "esp_x": 10.0,
+    "esp_y": 14.0,
+    "esp_w": 65.0,
+    "esp_h": 26.0,
+    "esp_d": 13.0,
+    "esp_sd_extra": 10.0,
+    "imu_x": 85.0,
+    "imu_y": 46.0,
+    "imu_w": 26.3,
+    "imu_h": 16.0,
+    "imu_pitch": 21.0,
+    "imu_hole_edge": 2.5,
+    "gps_x": 14.0,
+    "gps_y": 70.0,
+    "gps_w": 36.0,
+    "gps_h": 26.0,
+    "gps_d": 5.0,
+    "gps_pitch_x": 31.0,
+    "gps_pitch_y": 21.0,
+    "antenna_w": 35.0,
+    "antenna_h": 35.0,
+    "antenna_d": 6.7,
+    "antenna_y": 67.0,
+    "antenna_z": 44.5,
+    "antenna_fit": 0.5,
+    "antenna_cable": 70.0,
+    "switch_cable_hole": 7.0,
+    "battery_cable_hole": 7.0,
+    "fork_ear": 8.0,
+    "fork_gap": 14.6,
+    "tongue_t": 14.0,
+    "pivot_d": 26.0,
+    "pivot_y": -18.0,
+    "pivot_z": 26.0,
+    "pivot_hole": 6.4,
+    "nut_flats": 10.3,
+    "nut_depth": 5.0
+  },
+  "layout": {
+    "esp_screen_clearance_mm": 4.0,
+    "antenna_direct_route_mm": 29.3,
+    "fork_side_clearance_mm": 0.3
+  },
+  "parts": {
+    "01_Housing": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 9716,
+      "volume_cm3": 121.122,
+      "size_mm": [
+        120.0,
+        139.0,
+        52.003
+      ]
+    },
+    "02_Front_bezel": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 4144,
+      "volume_cm3": 28.586,
+      "size_mm": [
+        120.0,
+        108.0,
+        12.001
+      ]
+    },
+    "03_Electronics_carrier": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 6282,
+      "volume_cm3": 29.97,
+      "size_mm": [
+        106.0,
+        94.0,
+        6.002
+      ]
+    },
+    "04_Hinge_tongue_fit_gauge": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 768,
+      "volume_cm3": 11.274,
+      "size_mm": [
+        14.008,
+        35.0,
+        26.008
+      ]
+    },
+    "05_Display_spacer_2mm": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 1008,
+      "volume_cm3": 0.059,
+      "size_mm": [
+        7.002,
+        7.0,
+        2.002
+      ]
+    },
+    "05_Display_spacer_4mm": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 1008,
+      "volume_cm3": 0.118,
+      "size_mm": [
+        7.002,
+        7.0,
+        4.002
+      ]
+    },
+    "05_Display_spacer_6mm": {
+      "valid_solid": true,
+      "watertight_stl": true,
+      "solids": 1,
+      "triangles": 1008,
+      "volume_cm3": 0.176,
+      "size_mm": [
+        7.002,
+        7.0,
+        6.002
+      ]
+    }
+  },
+  "limitations": [
+    "Screen face measured 83 x 55 mm; aperture 83.4 x 55.4 mm. Centered position assumed.",
+    "Display mounting-plane offset, USB alignment, IMU height/row need physical fit check.",
+    "No weather sealing or structural load validation.",
+    "Hinge tongue is an interface gauge, not the motorcycle base."
+  ],
+  "hinge_housing_collision_mm3": {
+    "-90": 0.0,
+    "-60": 0.0,
+    "-45": 0.0,
+    "0": 0.0,
+    "45": 0.0,
+    "60": 0.0,
+    "90": 0.0
+  },
+  "component_printed_part_intersections_mm3": {
+    "Display envelope - connector depth included / 01_Housing": 0.0,
+    "Display envelope - connector depth included / 02_Front_bezel": 0.0,
+    "Display envelope - connector depth included / 03_Electronics_carrier": 0.0,
+    "ESP32 envelope / 01_Housing": 0.0,
+    "ESP32 envelope / 02_Front_bezel": 0.0,
+    "ESP32 envelope / 03_Electronics_carrier": 0.0,
+    "SD protrusion allowance / 01_Housing": 0.0,
+    "SD protrusion allowance / 02_Front_bezel": 0.0,
+    "SD protrusion allowance / 03_Electronics_carrier": 0.0,
+    "IMU envelope - height provisional / 01_Housing": 0.0,
+    "IMU envelope - height provisional / 02_Front_bezel": 0.0,
+    "IMU envelope - height provisional / 03_Electronics_carrier": 0.0,
+    "GPS module / 01_Housing": 0.0,
+    "GPS module / 02_Front_bezel": 0.0,
+    "GPS module / 03_Electronics_carrier": 0.0,
+    "Antenna envelope / 01_Housing": 0.0,
+    "Antenna envelope / 02_Front_bezel": 0.0,
+    "Antenna envelope / 03_Electronics_carrier": 0.0
+  },
+  "printed_assembly_intersections_mm3": {
+    "01_Housing / 02_Front_bezel": 0.0,
+    "01_Housing / 03_Electronics_carrier": 0.0,
+    "02_Front_bezel / 03_Electronics_carrier": 0.0
+  }
+}
