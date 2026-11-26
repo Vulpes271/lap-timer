@@ -1,0 +1,85 @@
+{
+    "version":  1,
+    "session":  {
+                    "id":  1795378269,
+                    "day":  20261122,
+                    "number":  1,
+                    "startUtcMs":  1795378269142,
+                    "track":  "TEST - Pomposa",
+                    "lapCount":  8
+                },
+    "laps":  [
+                 {
+                     "number":  1,
+                     "lapMs":  68250,
+                     "sectorsMs":  [
+                                       23000,
+                                       21000,
+                                       24250
+                                   ]
+                 },
+                 {
+                     "number":  2,
+                     "lapMs":  66780,
+                     "sectorsMs":  [
+                                       22400,
+                                       20500,
+                                       23880
+                                   ]
+                 },
+                 {
+                     "number":  3,
+                     "lapMs":  65920,
+                     "sectorsMs":  [
+                                       22100,
+                                       20120,
+                                       23700
+                                   ]
+                 },
+                 {
+                     "number":  4,
+                     "lapMs":  65300,
+                     "sectorsMs":  [
+                                       21800,
+                                       20000,
+                                       23500
+                                   ]
+                 },
+                 {
+                     "number":  5,
+                     "lapMs":  64620,
+                     "sectorsMs":  [
+                                       21500,
+                                       19750,
+                                       23370
+                                   ]
+                 },
+                 {
+                     "number":  6,
+                     "lapMs":  63800,
+                     "sectorsMs":  [
+                                       21100,
+                                       19500,
+                                       23200
+                                   ]
+                 },
+                 {
+                     "number":  7,
+                     "lapMs":  64150,
+                     "sectorsMs":  [
+                                       21300,
+                                       19600,
+                                       23250
+                                   ]
+                 },
+                 {
+                     "number":  8,
+                     "lapMs":  65040,
+                     "sectorsMs":  [
+                                       21600,
+                                       19900,
+                                       23540
+                                   ]
+                 }
+             ]
+}

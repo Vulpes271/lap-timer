@@ -21,6 +21,14 @@ Predhodni aktivni Wi-Fi scanner je ohranjen v `tools/wifi_scan_test.cpp`.
    konkretno Wi-Fi omrežje. Android 6–9 odpre nastavitve, kjer omrežje izbereš ročno.
 6. Izberi **dan**, nato **session**. Vsak veljaven zaključen krog pokaže skupni čas
    in ločene čase S1, S2, S3 v milisekundah.
+7. Po uspešnem prenosu aplikacija za še nepripisano vožnjo samodejno odpre
+   **Prenesi vožnjo v dan**. Izberi dan, voznika/motor ter novo ali obstoječo vožnjo
+   in potrdi. Če dneva še ni, lahko ustvariš nov dan z izbranim motorjem in voznikom.
+   Nato se odpre izbrani dan s shranjeno vožnjo in vsemi krogi/sektorji.
+   **Pozneje** zapre izbiro; na zaslonu povezave ostane **Prenesi v dan**.
+
+Oko ob geslu omogoča prikaz in ponovno skrivanje vnesenega gesla. Za samostojen
+preizkus brez GPS ali tipal je pripravljen projekt [test timer](../test%20timer/README.md).
 
 Po prvi nastavitvi si aplikacija zapomni napravo. Ko odpreš ta zaslon, znova zahteva
 povezavo; Android za že odobreno konkretno omrežje lahko povezavo potrdi sam.
@@ -48,8 +56,13 @@ Android 10–12 zahteva tudi dovoljenje lokacije in lahko zahteva vklop lokacijs
   Inicializira se samo popolnoma prazna notranja particija; okvarjene se ne formatira.
 - Telefon hrani prenesene čase lokalno in jih prikazuje tudi brez povezave. Ključ je
   kombinacija identitete naprave in sessiona; večkratni prenos ne podvaja krogov.
-- Ročni sessioni, Room baza, obrazci, JSON/CSV izvoz in Drive backup aplikacije
-  ostajajo nespremenjeni. Arhiv naprave je ločen in še ni del obstoječega izvoza/Drive backupa.
+- Po potrjenem pripisu se vožnja shrani v Room skupaj s krogi in sektorji ter je
+  vključena v JSON backup. CSV izvozi povzetek vožnje. Ročno vneseni tlaki, opombe,
+  kilometri, gume in vzmetenje obstoječe vožnje se ohranijo; uporabnik izbere,
+  ali uporabi najboljši čas merilnika ali obdrži ročnega.
+- Kartica označi že pripisano vožnjo in omogoči **Odpri dan**. Isti ključ naprava/vožnja
+  se ne uvozi dvakrat. Sam predpomnilnik še nepripisanih voženj ostaja ločen od JSON backupa.
+- Trenutni protokol prenaša čase krogov in sektorjev; tlaki in IMU telemetrija še niso vključeni.
 
 ## Protokol in preverjanje
 
